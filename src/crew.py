@@ -328,23 +328,7 @@ class MockTaskOutput:
 
 # ── Task Routing Constants ───────────────────────────────────────────────────
 
-# Intents that need EDA (descriptive stats pass)
-_EDA_INTENTS = {"descriptive"}
-
-# Intents that need a SQL query executed
-_QUERY_INTENTS = {
-    "aggregation", "comparison", "correlation",
-    "distribution", "trend", "ranking", "filter",
-}
-
-# Intents that produce a chart
-_VIZ_INTENTS = {
-    "aggregation", "comparison", "correlation",
-    "distribution", "trend", "ranking",
-}
-
-
-# ── Public Entry Point ────────────────────────────────────────────────────────
+# Intents that need EDA (descripti# ── Public Entry Point ────────────────────────────────────────────────────────
 
 def run_omega(
     user_query:    str,
@@ -353,262 +337,194 @@ def run_omega(
     task_callback: Optional[Callable] = None,
 ) -> Dict[str, Any]:
     """
-    High-performance hybrid data analysis pipeline.
-    Bypasses high-latency sequential CrewAI agent loops and executes
-    deterministic local python analysis tools directly.
-    Generates final business insight with a single structured LLM completion.
+    Agentic Reasoning Platform (Omega V3).
+    Formulates an analytical plan, writes Python code, runs it in a secure sandbox,
+    self-corrects errors, and serializes results for Streamlit.
     """
-    # Step 1 — Build schema
-    schema = build_schema_string(dataframe)
-    logger.info(
-        f"Schema built — {len(dataframe.columns)} columns, {len(dataframe)} rows"
-    )
+    from .interpreter import execute_code
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
-    # Step 2 — Intent preprocessing (low-latency gpt-4o-mini completion)
-    logger.info("Parsing intent...")
-    intent = _parse_intent(user_query, schema)
-    intent_type = intent["intent_type"]
-    target_columns_str = json.dumps(intent["target_columns"])
-    filters_str = json.dumps(intent["filters"])
-    desired_output_str = json.dumps(intent["desired_output"])
+    # Step 1: Initialize empty/skipped state for all output files to prevent frontend hang
+    logger.info("Initializing default output JSON states...")
+    _write_json("eda_result.json", {"status": "skipped", "observations": [], "summary_stats": {}, "outlier_flags": []})
+    _write_json("query_result.json", {"status": "skipped", "result_rows": [], "row_count": 0})
+    _write_json("chart.json", {"status": "skipped", "plotly_spec": None, "chart_generated": False})
+    _write_json("hypothesis_test.json", {"status": "skipped"})
+    _write_json("prediction.json", {"status": "skipped"})
+    _write_json("insight.json", {
+        "insight_text": "Preparing analysis...",
+        "key_metric": "",
+        "follow_up_suggestions": []
+    })
 
-    logger.info(
-        f"Inputs parsed — intent_type={intent_type}, "
-        f"target_columns={intent['target_columns']}"
-    )
-
-    # ── Task Routing ──────────────────────────────────────────────────────────
-    # descriptive  → EDA + insight            (no SQL, no chart)
-    # filter       → query + insight          (no EDA, no chart)
-    # distribution → EDA + query + viz + insight
-    # other queries → query + viz + insight    (no EDA)
-    # unknown      → all four (safe fallback)
-    
-    do_eda   = False
-    do_query = False
-    do_viz   = False
-    
-    if intent_type == "descriptive":
-        do_eda = True
-    elif intent_type in ["conversational", "prescriptive"]:
-        # Conversational Q&A / prescriptive strategy queries bypass code execution
-        do_eda   = False
-        do_query = False
-        do_viz   = False
-    elif intent_type == "filter":
-        do_query = True
-    elif intent_type == "distribution":
-        do_eda = True
-        do_query = True
-        do_viz = True
-    elif intent_type in _QUERY_INTENTS:
-        do_query = True
-        do_viz = True
-    else:
-        # Fallback
-        do_eda = True
-        do_query = True
-        do_viz = True
-
-    # ── Step 1: Descriptive Stats (EDA) ───────────────────────────────────────
-    eda_result = {"status": "skipped", "observations": [], "summary_stats": {}, "outlier_flags": []}
-    if do_eda:
-        logger.info("Executing EDA tools directly...")
-        # Invoke compute_eda_stats and detect_outliers via .func to bypass Tool wrapper
-        eda_stats = compute_eda_stats.func(target_columns_str)
-        outliers = detect_outliers.func(target_columns_str)
-        
-        # Merge results (compute_eda_stats already writes eda_result.json)
-        eda_result = {**eda_stats, "outlier_flags": outliers.get("outlier_flags", [])}
-        _write_json("eda_result.json", eda_result)
-        
-        if task_callback:
-            task_callback(MockTaskOutput("run_eda"))
-    else:
-        # Prevent Streamlit wait timeout on skipped files
-        _write_json("eda_result.json", eda_result)
-
-    # ── Step 2: SQL Query Execution ───────────────────────────────────────────
-    query_result = {"status": "skipped", "result_rows": [], "row_count": 0}
-    if do_query:
-        logger.info("Executing SQL tools directly...")
-        sql_info = generate_sql.func(
-            user_query=user_query,
-            dataset_schema=schema,
-            intent_type=intent_type,
-            target_columns=target_columns_str,
-            filters=filters_str
-        )
-        if sql_info.get("status") == "success":
-            query_result = execute_sql.func(sql_info["sql_query"])
-        else:
-            query_result = {"status": "failed", "error": sql_info.get("error"), "result_rows": [], "row_count": 0}
-            _write_json("query_result.json", query_result)
-            
-        if task_callback:
-            task_callback(MockTaskOutput("run_query"))
-    else:
-        # Prevent Streamlit wait timeout on skipped files
-        _write_json("query_result.json", query_result)
-
-    # ── Step 3: Plotly Spec Visualization ─────────────────────────────────────
-    chart_result = {"status": "skipped", "plotly_spec": None, "chart_generated": False}
-    if do_viz:
-        logger.info("Executing Visualization tools directly...")
-        chart_type_info = select_chart_type.func(
-            intent_type=intent_type,
-            desired_output=desired_output_str,
-            target_columns=target_columns_str
-        )
-        if chart_type_info.get("status") == "success":
-            spec_payload = {
-                "chart_type": chart_type_info["chart_type"],
-                "result_rows": query_result.get("result_rows", []),
-                "x_column": intent["target_columns"][0] if intent["target_columns"] else "",
-                "y_column": intent["target_columns"][1] if len(intent["target_columns"]) > 1 else "",
-                "title": f"Chart for: {user_query}"
-            }
-            # build_plotly_spec already writes chart.json
-            chart_result = build_plotly_spec.func(json.dumps(spec_payload))
-        else:
-            chart_result = {"status": "failed", "chart_generated": False, "plotly_spec": None}
-            _write_json("chart.json", chart_result)
-            
-        if task_callback:
-            task_callback(MockTaskOutput("render_chart"))
-    else:
-        # Prevent Streamlit wait timeout on skipped files
-        _write_json("chart.json", chart_result)
-
-    # ── Step 3.5: Statistical Hypothesis Testing ──────────────────────────────
-    hypothesis_result = {"status": "skipped"}
-    test_keywords = ["test", "hypothesis", "significant", "significance", "difference", "correlation test", "p-value", "confirm", "confirming"]
-    if intent_type in ["correlation", "comparison"] or any(kw in user_query.lower() for kw in test_keywords):
-        logger.info("Executing Hypothesis Test tool directly...")
-        hypothesis_result = run_hypothesis_test.func(target_columns_str)
-    else:
-        _write_json("hypothesis_test.json", hypothesis_result)
-
-    # ── Step 3.7: Time-Series Forecasting / Regression / Classification / Clustering (Phase 1, 2, 3 & 4) ──
-    prediction_result = {"status": "skipped"}
-    forecast_keywords = ["forecast", "project", "estimate future", "projection"]
-    regression_keywords = ["predict", "regression", "fit model", "estimate based on"]
-    classification_keywords = ["classify", "classification", "probability of", "likelihood of", "probability", "logistic"]
-    clustering_keywords = ["cluster", "segment", "group", "partition", "categorize"]
-    
-    is_forecast = (intent_type == "forecast") or any(kw in user_query.lower() for kw in forecast_keywords)
-    is_classification = (intent_type == "classification") or (
-        any(kw in user_query.lower() for kw in classification_keywords) and not is_forecast
-    )
-    is_clustering = (intent_type == "clustering") or (
-        any(kw in user_query.lower() for kw in clustering_keywords) 
-        and "group by" not in user_query.lower() 
-        and "grouped by" not in user_query.lower()
-        and not is_forecast 
-        and not is_classification
-    )
-    is_regression = (intent_type == "regression") or (
-        any(kw in user_query.lower() for kw in regression_keywords) and not is_forecast and not is_classification and not is_clustering
-    )
-    
-    import pandas as pd
-    import numpy as np
-    
-    if is_clustering:
-        logger.info("Executing Clustering engine...")
-        cols = intent.get("target_columns", [])
-        if len(cols) >= 1:
-            import re
-            k_val = 3
-            match = re.search(r"\b([2-8])\b\s*(?:clusters|groups|segments)", user_query.lower())
-            if match:
-                k_val = int(match.group(1))
-            else:
-                match_digit = re.search(r"cluster.*?(\b[2-8]\b)", user_query.lower())
-                if match_digit:
-                    k_val = int(match_digit.group(1))
-                    
-            prediction_result = fit_kmeans_clustering(dataframe, cols, k=k_val)
-        else:
-            prediction_result = {
-                "status": "failed",
-                "error": "insufficient_columns",
-                "message": "To run clustering, specify at least one feature column."
-            }
-            _write_json("prediction.json", prediction_result)
-            
-    elif is_classification:
-        logger.info("Executing Classification engine...")
-        cols = intent.get("target_columns", [])
-        if len(cols) >= 2:
-            target = cols[0]
-            features = cols[1:]
-            prediction_result = fit_classification_model(dataframe, target, features)
-        else:
-            prediction_result = {
-                "status": "failed",
-                "error": "insufficient_columns",
-                "message": "To run a classification model, specify the target column first followed by one or more feature columns."
-            }
-            _write_json("prediction.json", prediction_result)
-            
-    elif is_regression:
-        logger.info("Executing Regression engine...")
-        cols = intent.get("target_columns", [])
-        if len(cols) >= 2:
-            target = cols[0]
-            features = cols[1:]
-            prediction_result = fit_regression_model(dataframe, target, features)
-        else:
-            prediction_result = {
-                "status": "failed",
-                "error": "insufficient_columns",
-                "message": "To run a regression model, specify the target column first followed by one or more feature columns."
-            }
-            _write_json("prediction.json", prediction_result)
-            
-    elif is_forecast:
-        logger.info("Executing Forecasting engine...")
-        time_col = intent["target_columns"][0] if intent["target_columns"] else ""
-        metric_col = intent["target_columns"][1] if len(intent["target_columns"]) > 1 else ""
-        # Swap date vs metric if needed
-        if time_col and metric_col:
-            is_num_metric = pd.api.types.is_numeric_dtype(dataframe[metric_col])
-            # Swap if metric_col is date-like and time_col is not
-            if any(x in str(dataframe[metric_col].dtype).lower() for x in ['datetime', 'period']) or any(x in metric_col.lower() for x in ['year', 'date', 'time', 'month']):
-                time_col, metric_col = metric_col, time_col
-        elif time_col and not metric_col:
-            numeric_cols = [c for c in dataframe.select_dtypes(include=[np.number]).columns if c != time_col]
-            if numeric_cols:
-                metric_col = numeric_cols[0]
-                
-        if time_col and metric_col:
-            prediction_result = forecast_time_series(dataframe, time_col, metric_col)
-        else:
-            prediction_result = {
-                "status": "failed",
-                "error": "insufficient_columns",
-                "message": "To run a forecast, please specify a time column and a numeric metric column."
-            }
-            _write_json("prediction.json", prediction_result)
-    else:
-        _write_json("prediction.json", prediction_result)
-
-    # ── Step 4: Structured Insight LLM Call ──────────────────────────────────
-    logger.info("Generating final structured business insight...")
-    insight_result = _generate_insight_via_llm(
-        user_query=user_query,
-        intent_type=intent_type,
-        eda_data=eda_result,
-        query_data=query_result,
-        chart_data=chart_result,
-        hypothesis_data=hypothesis_result,
-        prediction_data=prediction_result
-    )
-    _write_json("insight.json", insight_result)
-    
     if task_callback:
+        task_callback(MockTaskOutput("run_eda"))
+
+    # Step 2: Build the dataframe context & schema
+    schema_str = build_schema_string(dataframe)
+    shape_str = f"{dataframe.shape[0]} rows, {dataframe.shape[1]} columns"
+    sample_str = dataframe.head(5).to_string()
+
+    system_prompt = """You are Omega V3, an autonomous senior data scientist agent.
+Your goal is to solve the user's business and data analytics queries by generating executable Python code.
+The user dataset is loaded in memory as a pandas DataFrame named `df`.
+
+You have access to the following python packages:
+- `pandas` as `pd`
+- `numpy` as `np`
+- `scipy`
+- `plotly`
+- `plotly.graph_objects` as `go`
+- `plotly.express` as `px`
+
+You also have access to these pre-injected helper functions:
+- `get_output_path(filename: str) -> str`: gets the correct output path for files.
+- `write_output_json(filename: str, data: dict) -> None`: writes data as JSON to the correct output path.
+
+You MUST write a Python script that calculates the answers and writes outputs to the output directory using `write_output_json`.
+Specifically, you should write the following files depending on what is relevant to the user's query:
+
+1. `query_result.json`: REQUIRED for any data filtering, aggregation, comparison, or SQL-like questions.
+   Format:
+   {
+     "status": "success",
+     "sql_query": "An equivalent SQL query representing the operations performed",
+     "result_rows": list of dicts (records),
+     "row_count": number of rows,
+     "truncated": false
+   }
+
+2. `eda_result.json`: REQUIRED for descriptive, distribution, or data overview questions.
+   Format:
+   {
+     "status": "success",
+     "summary_stats": dict of descriptive metrics,
+     "observations": list of strings outlining key observations,
+     "outlier_flags": list of dicts/strings flagging anomalies
+   }
+
+3. `chart.json`: REQUIRED if a chart/visualization was requested or makes sense for the analysis.
+   Format:
+   {
+     "status": "success",
+     "chart_generated": true,
+     "chart_type": "bar/scatter/line/etc",
+     "chart_title": "Descriptive title",
+     "plotly_spec": the plotly figure exported as a JSON-serializable dict (e.g., call `json.loads(fig.to_json())` or `fig.to_plotly_json()`)
+   }
+   IMPORTANT: Create interactive Plotly figures using `go` or `px`, use beautiful colors, and call `fig.to_json()` to populate the spec.
+
+4. `hypothesis_test.json`: REQUIRED if the user asks for correlation, significance, or comparison tests.
+   Format:
+   {
+     "status": "success",
+     "test_name": "T-test/Pearson/Chi-Square/etc",
+     "p_value": float,
+     "statistic": float,
+     "null_hypothesis": "...",
+     "alternative_hypothesis": "...",
+     "conclusion": "Reject/Fail to reject null hypothesis"
+   }
+
+5. `prediction.json`: REQUIRED if the user asks for forecasting, regression, classification, or clustering models.
+   Format must match the model type:
+   - For forecasting:
+     {"status": "success", "time_column": "col_name", "metric_column": "col_name", "historical_dates": [...], "historical_values": [...], "forecast_dates": [...], "forecast_values": [...], "lower_bound": [...], "upper_bound": [...], "model_metrics": {...}}
+   - For regression:
+     {"status": "regression", "target_column": "col_name", "features": [...], "intercept": float, "coefficients": {col: float}, "model_metrics": {...}, "dummy_mappings": {}}
+   - For classification:
+     {"status": "classification", "model_mode": "binary" or "multiclass", "target_column": "col_name", "features": [...], "model_metrics": {...}, "target_label": "col_name", "class_0_label": "0", "class_1_label": "1", "intercept": float, "coefficients": {col: float}, "classes": [...], "intercepts": {...}, "coefficients": {...}, "dummy_mappings": {}}
+   - For clustering:
+     {"status": "clustering", "features": [...], "clusters": [...], "labels": [...], "pc_coords": [...], "sample_size": int, "means": {...}}
+
+6. `insight.json`: ALWAYS REQUIRED. Composes the final executive insight.
+   Format:
+   {
+     "insight_text": "Comprehensive analysis of the findings...",
+     "key_metric": "Single highlight metric (e.g. '87% Adoption' or '-0.65 correlation')",
+     "follow_up_suggestions": list of follow-up questions,
+     "intent_type": "descriptive/forecast/regression/classification/clustering/prescriptive",
+     "strategies": list of strings for strategic recommendations,
+     "priority_matrix": list of dicts with keys "action", "impact", "effort" (each 'High/Medium/Low'),
+     "risks": list of strings for potential risks/limitations
+   }
+
+RULES FOR YOUR PYTHON CODE:
+- Always handle missing/null values gracefully in code (e.g. dropna or fillna).
+- Write clean, robust, and commented code.
+- Return ONLY the executable python code block enclosed inside ```python ... ``` fences. Do not include markdown text or explanations outside the code block.
+"""
+
+    user_message = f"""User query: {user_query}
+
+Dataset metadata:
+- Shape: {shape_str}
+- Schema:
+{schema_str}
+
+Dataset Sample (first 5 rows):
+{sample_str}
+
+Please generate the Python code to perform this analysis and write the required json output files.
+"""
+
+    code = ""
+    max_attempts = 3
+    history = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message}
+    ]
+
+    for attempt in range(1, max_attempts + 1):
+        logger.info(f"Attempting to generate python code (Attempt {attempt}/{max_attempts})...")
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=history,
+                temperature=0.1,
+            )
+            reply = response.choices[0].message.content
+            history.append({"role": "assistant", "content": reply})
+
+            # Extract code block
+            import re
+            code_match = re.search(r"```python(.*?)```", reply, re.DOTALL)
+            if code_match:
+                code = code_match.group(1).strip()
+            else:
+                code = reply.strip()
+                if code.startswith("```"):
+                    code = code.strip("`").strip("python").strip()
+
+            logger.info("Executing generated code in sandbox...")
+            if task_callback:
+                task_callback(MockTaskOutput("run_query"))
+
+            result = execute_code(code, dataframe)
+
+            if result["success"]:
+                logger.info("Sandbox execution completed successfully!")
+                break
+            else:
+                logger.warning(f"Execution error on attempt {attempt}: {result['error']}")
+                history.append({
+                    "role": "user",
+                    "content": f"The code execution failed with the following error:\n{result['error']}\n\nPlease fix the bug and return the corrected python code."
+                })
+        except Exception as e:
+            logger.error(f"Error during agent completion loop: {e}")
+            break
+
+    if task_callback:
+        task_callback(MockTaskOutput("render_chart"))
         task_callback(MockTaskOutput("generate_insight"))
 
-    logger.info("Omega pipeline execution completed successfully.")
-    return insight_result
+    # Read the final written insight.json to return it to the caller
+    final_insight = _load_json_safely("insight.json")
+    if not final_insight or final_insight.get("insight_text") == "Preparing analysis...":
+        final_insight = {
+            "insight_text": "Completed agentic execution run. Results are written to output files.",
+            "key_metric": "Success",
+            "follow_up_suggestions": ["Would you like to try another analysis?"]
+        }
+    return final_insight
