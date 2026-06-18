@@ -1,0 +1,189 @@
+run_eda:
+  description: >
+    Perform exploratory data analysis on the uploaded dataset for the query:
+    "{user_query}".
+
+    You have access to the following dataset context:
+      - schema: {schema}
+      - intent_type: {intent_type}
+      - target_columns: {target_columns}
+
+    TOOL USAGE:
+
+    1. Call `compute_eda_stats` with the dataset reference and target_columns.
+       - If intent_type is 'descriptive', pass all columns.
+       - If intent_type is anything else, pass only {target_columns}.
+
+    2. Call `detect_outliers` on all numeric columns in {target_columns}.
+
+    3. Validate the returned output:
+       - If any tool returns an error key, report it clearly and skip that metric.
+       - NEVER fabricate statistics not returned by the tools.
+       - If a column in {target_columns} does not exist in {schema}, skip it
+         and include it in a missing_columns list in the output.
+
+    4. Write the full result to output/eda_result.json.
+
+  expected_output: >
+    JSON object with the following keys:
+      - summary_stats: dict of column -> {mean, median, std, min, max, q1, q3}
+      - null_report: dict of column -> null percentage (float)
+      - outlier_flags: list of {column, outlier_count, lower_bound, upper_bound}
+      - data_types: dict of column -> inferred type string
+      - skewness: dict of numeric column -> skewness value (float)
+      - missing_columns: list of column names not found in schema
+      - observations: list of up to 5 plain-English observations about the data
+      - error: null or error string if analysis could not be completed
+
+  agent: eda_agent
+  output_file: output/eda_result.json
+  config: {}
+
+
+run_query:
+  description: >
+    Translate the user's question into DuckDB SQL and execute it against the
+    uploaded dataset.
+
+    You have access to the following context:
+      - user_query: {user_query}
+      - schema: {schema}
+      - intent_type: {intent_type}
+      - target_columns: {target_columns}
+      - filters: {filters}
+
+    TOOL USAGE:
+
+    1. Call `generate_sql` with {user_query}, {schema}, {intent_type},
+       {target_columns}, and {filters}.
+       - Validate that every column in the generated SQL exists in {schema}.
+       - If a column is missing, revise the SQL before execution.
+
+    2. Call `execute_sql` with the validated SQL string.
+       - If execution fails, capture the exact error message.
+       - Attempt one corrected SQL query and execute again.
+       - If the second attempt also fails, return the error in the output JSON.
+
+    3. Validate the result:
+       - If result_rows is empty, state clearly that no rows matched the query.
+       - If row_count exceeds 500, truncate to 500 rows and set truncated=true.
+
+    4. Write the full result to output/query_result.json.
+
+  expected_output: >
+    JSON object with the following keys:
+      - sql_query: the final executed SQL string
+      - result_rows: list of dicts representing query output rows (max 500)
+      - row_count: integer count of returned rows
+      - truncated: true if result was truncated to 500 rows, false otherwise
+      - assumptions: list of strings describing any interpretive choices made
+      - error: null or error string if execution failed after retry
+
+  agent: query_agent
+  context:
+    - run_eda
+  output_file: output/query_result.json
+  config: {}
+
+
+render_chart:
+  description: >
+    Select the appropriate chart type and generate a Plotly figure specification
+    based on the query result from run_query.
+
+    You have access to the following context:
+      - intent_type: {intent_type}
+      - desired_output: {desired_output}
+      - target_columns: {target_columns}
+      - user_query: {user_query}
+      - The query result from run_query (result_rows and sql_query)
+
+    TOOL USAGE:
+
+    1. Read the query result from output/query_result.json.
+       - If result_rows is empty or error is not null, do NOT generate a chart.
+       - Set chart_generated=false and include a reason in render_note.
+
+    2. Call `select_chart_type` with {intent_type}, {desired_output},
+       and {target_columns} to determine the best chart type.
+
+    3. Call `build_plotly_spec` with a single spec_json argument.
+       Construct spec_json as a JSON string with these keys:
+         - chart_type: the value from step 2
+         - result_rows: the list of dicts from the query result
+         - x_column: first column from {target_columns}
+         - y_column: second column from {target_columns} (or same as x if only one)
+         - title: a short descriptive title derived from {user_query}
+       Example:
+         spec_json = '{"chart_type":"bar","result_rows":[...],"x_column":"region","y_column":"sales","title":"Sales by Region"}'
+
+    4. Validate the returned spec:
+       - Confirm data and layout keys are present.
+       - If data is empty, set chart_generated=false.
+
+    5. Write the full result to output/chart.json.
+
+  expected_output: >
+    JSON object with the following keys:
+      - chart_type: string (e.g. 'bar', 'scatter', 'histogram', 'line', 'box')
+      - plotly_spec: full Plotly figure dict containing data and layout keys
+      - chart_title: string
+      - axes: dict with x_label and y_label
+      - chart_generated: true if chart was successfully built, false otherwise
+      - render_note: string describing any limitation, assumption, or skip reason
+
+  agent: viz_agent
+  context:
+    - run_query
+  output_file: output/chart.json
+  config: {}
+
+
+generate_insight:
+  description: >
+    Translate the analytical results into a clear, jargon-free business insight
+    for a non-technical user.
+
+    You have access to the following context:
+      - user_query: {user_query}
+      - intent_type: {intent_type}
+      - The EDA result from run_eda (observations, summary_stats, outlier_flags)
+      - The query result from run_query (result_rows, row_count, assumptions)
+      - The chart metadata from render_chart (chart_type, chart_title, render_note)
+
+    TOOL USAGE:
+
+    1. Read output/eda_result.json, output/query_result.json,
+       and output/chart.json to gather the full analytical context.
+
+    2. Call `compose_insight` with the combined context and {user_query}.
+       - The tool will return a draft insight string.
+       - Validate that the draft contains no technical jargon (SQL, dataframe,
+         aggregation, coefficient, etc.).
+       - If jargon is found, revise the insight before writing to output.
+
+    3. Generate exactly 2 follow-up questions that a non-technical user
+       would naturally want to ask after seeing this result.
+       - Questions must be in plain English.
+       - Questions must be answerable from the same dataset.
+
+    4. Write the full result to output/insight.json.
+
+  expected_output: >
+    JSON object with the following keys:
+      - insight_text: exactly 3 sentences of plain-English insight
+          Sentence 1: the single most important finding
+          Sentence 2: context or comparison (which group, by how much)
+          Sentence 3: one concrete, actionable observation
+      - key_metric: the single most important number or finding as a string
+      - follow_up_suggestions: list of exactly 2 plain-language follow-up questions
+      - error: null or a plain-English explanation if results were insufficient
+        to generate a meaningful insight
+
+  agent: insight_agent
+  context:
+    - run_eda
+    - run_query
+    - render_chart
+  output_file: output/insight.json
+  config: {}
