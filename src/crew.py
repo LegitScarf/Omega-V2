@@ -419,11 +419,13 @@ Specifically, you should write the following files depending on what is relevant
    {
      "status": "success",
      "test_name": "T-test/Pearson/Chi-Square/etc",
+     "statistic_name": "Name of the statistic (e.g. t-statistic, correlation coefficient)",
+     "statistic_value": float,
      "p_value": float,
-     "statistic": float,
      "null_hypothesis": "...",
      "alternative_hypothesis": "...",
-     "conclusion": "Reject/Fail to reject null hypothesis"
+     "interpretation": "Detailed statistical interpretation and conclusion...",
+     "is_significant": bool
    }
 
 5. `prediction.json`: REQUIRED if the user asks for forecasting, regression, classification, or clustering models.
