@@ -1286,14 +1286,29 @@ def _render_results(result: Dict[str, Any]) -> None:
         result_df = pd.DataFrame(rows)
         st.dataframe(result_df, width='stretch', height=280)
 
-        # Download button
         csv = result_df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="⬇ Download results as CSV",
-            data=csv,
-            file_name="omega_results.csv",
-            mime="text/csv",
-        )
+        col_dl1, col_dl2 = st.columns([1, 1])
+        with col_dl1:
+            st.download_button(
+                label="⬇ Download results as CSV",
+                data=csv,
+                file_name="omega_results.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        with col_dl2:
+            from src.report import generate_pdf_report
+            try:
+                pdf_buffer = generate_pdf_report(result)
+                st.download_button(
+                    label="📄 Download Report as PDF",
+                    data=pdf_buffer,
+                    file_name="omega_report.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.error(f"Failed to generate PDF report: {e}")
 
     # ── 4. Follow-up chips ─────────────────────────────────────────────────────
     follow_ups = result.get("follow_ups", [])

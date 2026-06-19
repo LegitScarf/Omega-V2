@@ -21,6 +21,12 @@ def execute_code(code: str, df: pd.DataFrame) -> Dict[str, Any]:
     Captures stdout, stderr, and any exceptions raised.
     """
     from .utils import get_output_path
+    from .predictive import (
+        fit_regression_model,
+        fit_classification_model,
+        fit_kmeans_clustering,
+        forecast_time_series
+    )
     
     def serialize_safe(obj):
         if isinstance(obj, dict):
@@ -64,6 +70,10 @@ def execute_code(code: str, df: pd.DataFrame) -> Dict[str, Any]:
         "px": px,
         "get_output_path": get_output_path,
         "write_output_json": write_output_json,
+        "fit_regression_model": fit_regression_model,
+        "fit_classification_model": fit_classification_model,
+        "fit_kmeans_clustering": fit_kmeans_clustering,
+        "forecast_time_series": forecast_time_series,
     }
     exec_locals = {}
 

@@ -380,6 +380,12 @@ You have access to the following python packages:
 You also have access to these pre-injected helper functions:
 - `get_output_path(filename: str) -> str`: gets the correct output path for files.
 - `write_output_json(filename: str, data: dict) -> None`: writes data as JSON to the correct output path.
+- `fit_regression_model(df, target_col: str, feature_cols: list) -> dict`: Fits a multiple linear regression model, writes results to `prediction.json`, and returns result dict.
+- `fit_classification_model(df, target_col: str, feature_cols: list) -> dict`: Fits a logistic regression classification model, writes results to `prediction.json`, and returns result dict.
+- `fit_kmeans_clustering(df, feature_cols: list, k: int) -> dict`: Fits a K-Means clustering model, writes results to `prediction.json`, and returns result dict.
+- `forecast_time_series(df, time_col: str, metric_col: str) -> dict`: Generates time-series forecast projections, writes results to `prediction.json`, and returns result dict.
+
+If the user query asks to build, train, fit, forecast, segment, cluster, or predict models, do NOT import `sklearn` or build custom fitting routines. Simply call the appropriate pre-injected helper function directly on the dataframe `df`! Do not call `write_output_json` for `prediction.json` manually if you use these functions, as they will save `prediction.json` automatically.
 
 You MUST write a Python script that calculates the answers and writes outputs to the output directory using `write_output_json`.
 Specifically, you should write the following files depending on what is relevant to the user's query:
@@ -521,12 +527,35 @@ Please generate the Python code to perform this analysis and write the required 
         task_callback(MockTaskOutput("render_chart"))
         task_callback(MockTaskOutput("generate_insight"))
 
-    # Read the final written insight.json to return it to the caller
+    # Read the final written insight.json
     final_insight = _load_json_safely("insight.json")
     if not final_insight or final_insight.get("insight_text") == "Preparing analysis...":
-        final_insight = {
-            "insight_text": "Completed agentic execution run. Results are written to output files.",
-            "key_metric": "Success",
-            "follow_up_suggestions": ["Would you like to try another analysis?"]
-        }
+        logger.info("Sandbox script did not write insight.json. Invoking fallback LLM insight generator...")
+        eda_data = _load_json_safely("eda_result.json")
+        query_data = _load_json_safely("query_result.json")
+        chart_data = _load_json_safely("chart.json")
+        hypothesis_data = _load_json_safely("hypothesis_test.json")
+        prediction_data = _load_json_safely("prediction.json")
+        
+        # Infer intent type for system prompt selection
+        intent_type = "descriptive"
+        if prediction_data and prediction_data.get("status") in ["regression", "classification", "clustering", "success"]:
+            intent_type = prediction_data.get("status")
+            if intent_type == "success":
+                intent_type = "forecast"
+        elif "correlation" in user_query.lower() or "test" in user_query.lower():
+            intent_type = "correlation"
+        
+        final_insight = _generate_insight_via_llm(
+            user_query=user_query,
+            intent_type=intent_type,
+            eda_data=eda_data,
+            query_data=query_data,
+            chart_data=chart_data,
+            hypothesis_data=hypothesis_data,
+            prediction_data=prediction_data
+        )
+
+    # Write the final result back to disk so Streamlit UI updates
+    _write_json("insight.json", final_insight)
     return final_insight
