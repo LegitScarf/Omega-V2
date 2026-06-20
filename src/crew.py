@@ -459,6 +459,8 @@ Specifically, you should write the following files depending on what is relevant
 
 RULES FOR YOUR PYTHON CODE:
 - Always handle missing/null values gracefully in code (e.g. dropna or fillna).
+- If asked to calculate correlations against a categorical column (e.g., target or feature is non-numeric/string), you MUST encode it numerically (e.g. using `df[col].astype('category').cat.codes` or label mapping) before running the correlation.
+- To maintain optimal speed and prevent memory issues on the cloud server, always sample the dataframe to a maximum of 15,000 rows (e.g. `df_sample = df.sample(n=min(15000, len(df)), random_state=42)`) before performing complex modeling, model training, or large statistics computations.
 - Write clean, robust, and commented code.
 - Return ONLY the executable python code block enclosed inside ```python ... ``` fences. Do not include markdown text or explanations outside the code block.
 """

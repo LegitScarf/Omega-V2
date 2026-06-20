@@ -36,7 +36,10 @@ def execute_code(code: str, df: pd.DataFrame) -> Dict[str, Any]:
         elif isinstance(obj, (np.integer, np.int64, np.int32, np.int16, np.int8)):
             return int(obj)
         elif isinstance(obj, (np.floating, np.float64, np.float32)):
-            return float(obj)
+            val = float(obj)
+            return None if np.isnan(val) or np.isinf(val) else val
+        elif isinstance(obj, float):
+            return None if np.isnan(obj) or np.isinf(obj) else obj
         elif isinstance(obj, np.bool_):
             return bool(obj)
         elif isinstance(obj, (np.ndarray, pd.Series)):
