@@ -872,6 +872,39 @@ def _render_step_tracker() -> None:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
+def _clean_plotly_spec(spec: Any) -> Any:
+    if not isinstance(spec, dict):
+        return spec
+        
+    cleaned_spec = spec.copy()
+    if "data" in cleaned_spec:
+        raw_data = cleaned_spec["data"]
+        new_data = []
+        
+        if isinstance(raw_data, dict):
+            raw_data = [raw_data]
+        elif not isinstance(raw_data, list):
+            raw_data = []
+            
+        for item in raw_data:
+            if isinstance(item, dict):
+                if "data" in item:
+                    nested_data = item["data"]
+                    if isinstance(nested_data, list):
+                        for sub_item in nested_data:
+                            new_data.append(_clean_plotly_spec(sub_item))
+                    elif isinstance(nested_data, dict):
+                        new_data.append(_clean_plotly_spec(nested_data))
+                else:
+                    new_data.append(_clean_plotly_spec(item))
+            else:
+                new_data.append(item)
+                
+        cleaned_spec["data"] = new_data
+        
+    return cleaned_spec
+
+
 # ── Results panel ──────────────────────────────────────────────────────────────
 
 def _tag(text: str, level: str, kind: str) -> str:
@@ -1602,7 +1635,8 @@ def _render_results(result: Dict[str, Any]) -> None:
 
     if chart_gen and chart_spec and not has_forecast and not has_regression and not has_classification and not has_clustering:
         try:
-            fig = go.Figure(chart_spec)
+            cleaned_spec = _clean_plotly_spec(chart_spec)
+            fig = go.Figure(cleaned_spec)
             fig.update_layout(
                 plot_bgcolor='#FFFFFF',
                 paper_bgcolor='#FAFAFA',

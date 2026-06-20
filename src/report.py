@@ -44,6 +44,39 @@ class OmegaPDFReport(FPDF):
         self.set_font("Helvetica", "I", 8)
         self.cell(0, 10, f"Page {self.page_no()}/{{nb}} | Omega AI Analytics Platform", align="C")
 
+def _clean_plotly_spec(spec: Any) -> Any:
+    if not isinstance(spec, dict):
+        return spec
+        
+    cleaned_spec = spec.copy()
+    if "data" in cleaned_spec:
+        raw_data = cleaned_spec["data"]
+        new_data = []
+        
+        if isinstance(raw_data, dict):
+            raw_data = [raw_data]
+        elif not isinstance(raw_data, list):
+            raw_data = []
+            
+        for item in raw_data:
+            if isinstance(item, dict):
+                if "data" in item:
+                    nested_data = item["data"]
+                    if isinstance(nested_data, list):
+                        for sub_item in nested_data:
+                            new_data.append(_clean_plotly_spec(sub_item))
+                    elif isinstance(nested_data, dict):
+                        new_data.append(_clean_plotly_spec(nested_data))
+                else:
+                    new_data.append(_clean_plotly_spec(item))
+            else:
+                new_data.append(item)
+                
+        cleaned_spec["data"] = new_data
+        
+    return cleaned_spec
+
+
 def generate_pdf_report(result: Dict[str, Any]) -> BytesIO:
     """
     Compiles insights, charts, tables, and prescriptive actions
@@ -116,7 +149,8 @@ def generate_pdf_report(result: Dict[str, Any]) -> BytesIO:
         
         try:
             # Recreate figure using Plotly dict spec
-            fig = go.Figure(chart_spec)
+            cleaned_spec = _clean_plotly_spec(chart_spec)
+            fig = go.Figure(cleaned_spec)
             
             # Apply styling parameters compatible with PDF format (light background)
             fig.update_layout(
