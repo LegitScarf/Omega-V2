@@ -1012,8 +1012,21 @@ def _render_results(result: Dict[str, Any]) -> None:
     hypothesis = result.get("hypothesis", {})
     if hypothesis and hypothesis.get("status") == "success":
         is_sig    = hypothesis.get("is_significant", False)
-        p_val     = hypothesis.get("p_value", 1.0)
-        p_str     = f"{p_val:.4e}" if p_val < 0.0001 else f"{p_val:.4f}"
+        p_val = hypothesis.get("p_value")
+        if p_val is None or pd.isna(p_val):
+            p_str = "N/A"
+        else:
+            p_str = f"{p_val:.4e}" if p_val < 0.0001 else f"{p_val:.4f}"
+            
+        stat_val = hypothesis.get("statistic_value")
+        if stat_val is None or pd.isna(stat_val):
+            stat_str = "N/A"
+        else:
+            try:
+                stat_str = f"{stat_val:,.4f}" if isinstance(stat_val, (int, float)) else str(stat_val)
+            except Exception:
+                stat_str = str(stat_val)
+        
         sig_badge = (
             "<span class='badge badge-success'>● Significant</span>"
             if is_sig else
@@ -1037,7 +1050,7 @@ def _render_results(result: Dict[str, Any]) -> None:
             <div class="stat-group">
                 <div class="stat-item">
                     <div class="stat-label">{hypothesis.get('statistic_name','Statistic')}</div>
-                    <div class="stat-value">{hypothesis.get('statistic_value'):,}</div>
+                    <div class="stat-value">{stat_str}</div>
                 </div>
                 <div class="stat-item">
                     <div class="stat-label">p-value</div>

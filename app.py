@@ -583,8 +583,20 @@ def _render_results(result: Dict[str, Any]) -> None:
         is_sig = hypothesis.get("is_significant", False)
         badge_cls = "badge-success" if is_sig else "badge-error"
         badge_text = "🟢 Statistically Significant" if is_sig else "⚪ Not Statistically Significant"
-        p_val = hypothesis.get("p_value", 1.0)
-        p_str = f"{p_val:.4e}" if p_val < 0.0001 else f"{p_val:.4f}"
+        p_val = hypothesis.get("p_value")
+        if p_val is None or pd.isna(p_val):
+            p_str = "N/A"
+        else:
+            p_str = f"{p_val:.4e}" if p_val < 0.0001 else f"{p_val:.4f}"
+            
+        stat_val = hypothesis.get("statistic_value")
+        if stat_val is None or pd.isna(stat_val):
+            stat_str = "N/A"
+        else:
+            try:
+                stat_str = f"{stat_val:,.4f}" if isinstance(stat_val, (int, float)) else str(stat_val)
+            except Exception:
+                stat_str = str(stat_val)
         
         html_content = f"""
         <div style="background-color: #ffffff; border: 1px solid #e8e6e0; border-left: 4px solid #9b51e0; border-radius: 10px; padding: 20px 24px; margin-bottom: 20px;">
@@ -608,7 +620,7 @@ def _render_results(result: Dict[str, Any]) -> None:
             <div style="display: flex; gap: 40px; margin-bottom: 15px; flex-wrap: wrap;">
                 <div>
                     <span style="font-size: 11px; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">{hypothesis.get('statistic_name')}</span>
-                    <div style="font-size: 18px; font-weight: 700; color: #2a2a2a; margin-top: 2px;">{hypothesis.get('statistic_value'):,}</div>
+                    <div style="font-size: 18px; font-weight: 700; color: #2a2a2a; margin-top: 2px;">{stat_str}</div>
                 </div>
                 <div>
                     <span style="font-size: 11px; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">p-value</span>
