@@ -149,7 +149,18 @@ def generate_pdf_report(result: Dict[str, Any]) -> BytesIO:
         pdf.ln(3)
         
         try:
-            df_table = pd.DataFrame(rows)
+            if isinstance(rows, dict):
+                if all(not isinstance(v, (list, dict, tuple)) for v in rows.values()):
+                    df_table = pd.DataFrame([rows])
+                else:
+                    df_table = pd.DataFrame(rows)
+            elif isinstance(rows, list):
+                if rows and not isinstance(rows[0], dict) and not isinstance(rows[0], (list, tuple)):
+                    df_table = pd.DataFrame(rows, columns=["Value"])
+                else:
+                    df_table = pd.DataFrame(rows)
+            else:
+                df_table = pd.DataFrame(rows)
             # Select first 20 rows to avoid extremely long tables
             df_table = df_table.head(20)
             headers = df_table.columns.tolist()

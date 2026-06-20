@@ -1224,9 +1224,19 @@ def _render_results(result: Dict[str, Any]) -> None:
 
         # Draw Actual vs Predicted diagnostic Plotly chart
         try:
-            df_sample = st.session_state.df.dropna(subset=[target_col]).head(500)
-            actuals = pd.to_numeric(df_sample[target_col], errors='coerce').dropna().values
+            matched_col = target_col
+            if target_col not in st.session_state.df.columns:
+                for col in st.session_state.df.columns:
+                    if col.lower() == target_col.lower():
+                        matched_col = col
+                        break
             
+            df_sample = st.session_state.df.dropna(subset=[matched_col]).head(500)
+            actuals = pd.to_numeric(df_sample[matched_col], errors='coerce').dropna().values
+            
+            if len(actuals) == 0:
+                raise ValueError("No actual numeric outcomes found to plot.")
+                
             # Predict values for the sample
             preds = np.full(len(actuals), intercept)
             # Match the indices to align predictors
@@ -1235,8 +1245,16 @@ def _render_results(result: Dict[str, Any]) -> None:
             for feat in features:
                 name = feat["name"]
                 f_type = feat.get("type", "numeric")
+                
+                matched_feat_col = name
+                if name not in df_aligned.columns:
+                    for col in df_aligned.columns:
+                        if col.lower() == name.lower():
+                            matched_feat_col = col
+                            break
+                            
                 if f_type == "numeric":
-                    vals = pd.to_numeric(df_aligned[name], errors='coerce').fillna(feat.get("mean", 0.0)).values
+                    vals = pd.to_numeric(df_aligned[matched_feat_col], errors='coerce').fillna(feat.get("mean", 0.0)).values
                     mean_val = feat.get("mean", 0.0)
                     std_val = feat.get("std", 1.0)
                     scaled_vals = (vals - mean_val) / std_val
@@ -1244,7 +1262,7 @@ def _render_results(result: Dict[str, Any]) -> None:
                 else:
                     cat_dummies = dummy_mappings.get(name, {})
                     for cat, dummy_col in cat_dummies.items():
-                        preds += coefficients.get(dummy_col, 0.0) * (df_aligned[name] == cat).astype(float).values
+                        preds += coefficients.get(dummy_col, 0.0) * (df_aligned[matched_feat_col] == cat).astype(float).values
 
             fig_reg = go.Figure()
             # Scatter trace
@@ -1612,7 +1630,20 @@ def _render_results(result: Dict[str, Any]) -> None:
                 f"</div>",
                 unsafe_allow_html=True,
             )
-        result_df = pd.DataFrame(rows)
+        # Robust parsing of rows to prevent "If using all scalar values, you must pass an index"
+        if isinstance(rows, dict):
+            if all(not isinstance(v, (list, dict, tuple)) for v in rows.values()):
+                result_df = pd.DataFrame([rows])
+            else:
+                result_df = pd.DataFrame(rows)
+        elif isinstance(rows, list):
+            if rows and not isinstance(rows[0], dict) and not isinstance(rows[0], (list, tuple)):
+                result_df = pd.DataFrame(rows, columns=["Value"])
+            else:
+                result_df = pd.DataFrame(rows)
+        else:
+            result_df = pd.DataFrame(rows)
+            
         st.dataframe(result_df, use_container_width=True, height=280)
         csv = result_df.to_csv(index=False).encode("utf-8")
         col_dl1, col_dl2 = st.columns([1, 1])
