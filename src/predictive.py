@@ -65,18 +65,22 @@ def forecast_time_series(
             _write_output_json("prediction.json", res)
             return res
 
-        # Try to parse datetime only if it's a string/object column to prevent year numbers being parsed as unix timestamps
+        # Try to parse datetime columns robustly
         is_datetime = False
-        if working_df[time_col].dtype == "object":
+        if pd.api.types.is_datetime64_any_dtype(working_df[time_col]):
+            is_datetime = True
+        else:
             try:
                 parsed = pd.to_datetime(working_df[time_col], errors='coerce')
-                if parsed.notna().all():
+                # If at least half of the values are valid datetimes, treat it as a datetime column
+                if parsed.notna().sum() > 0.5 * len(working_df):
                     working_df[time_col] = parsed
                     is_datetime = True
             except Exception:
                 is_datetime = False
 
         if is_datetime:
+            working_df = working_df.dropna(subset=[time_col])
             # Sort chronologically and aggregate duplicates
             aggregated = working_df.groupby(time_col)[metric_col].mean().sort_index().reset_index()
             dates = aggregated[time_col]
@@ -106,7 +110,7 @@ def forecast_time_series(
             # Fallback for numerical/ordinal time column (e.g. Years like 2006, 2007)
             # Try to convert to float/int
             working_df[time_col] = pd.to_numeric(working_df[time_col], errors='coerce')
-            working_df = working_df.dropna()
+            working_df = working_df.dropna(subset=[time_col])
             
             if len(working_df) < 5:
                 res = {
@@ -469,6 +473,10 @@ def fit_classification_model(
             return res
 
         # Standardize and map target (binary or multi-class)
+        # Ensure target column contains uniform type values to avoid sorting errors
+        if not pd.api.types.is_numeric_dtype(working_df[target_col]):
+            working_df[target_col] = working_df[target_col].astype(str)
+        
         unique_targets = sorted(working_df[target_col].unique().tolist())
         is_multiclass = len(unique_targets) > 2
         

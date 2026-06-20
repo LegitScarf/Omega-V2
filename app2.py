@@ -817,7 +817,7 @@ def _render_sidebar() -> None:
             st.markdown(pills_html, unsafe_allow_html=True)
 
             with st.expander("Preview data", expanded=False):
-                st.dataframe(df.head(5), use_container_width=True, height=180)
+                st.dataframe(df.head(5), width='stretch', height=180)
 
             st.divider()
 
@@ -1111,7 +1111,7 @@ def _render_results(result: Dict[str, Any]) -> None:
                 plot_bgcolor='#FFFFFF', paper_bgcolor='#FAFAFA',
                 font=dict(family='Inter, sans-serif', size=12, color='#555'),
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         except Exception as exc:
             st.warning(f"Forecast plot could not be rendered: {exc}")
 
@@ -1298,7 +1298,7 @@ def _render_results(result: Dict[str, Any]) -> None:
                 height=380,
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
-            st.plotly_chart(fig_reg, use_container_width=True)
+            st.plotly_chart(fig_reg, width='stretch')
         except Exception as reg_plot_exc:
             st.warning(f"Could not render regression fit plot: {reg_plot_exc}")
 
@@ -1521,7 +1521,7 @@ def _render_results(result: Dict[str, Any]) -> None:
                 legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
                 font=dict(family='Inter, sans-serif', size=11, color='#555'),
             )
-            st.plotly_chart(fig_3d, use_container_width=True)
+            st.plotly_chart(fig_3d, width='stretch')
         except Exception as exc:
             st.warning(f"Could not render cluster cloud: {exc}")
 
@@ -1609,7 +1609,7 @@ def _render_results(result: Dict[str, Any]) -> None:
                 font=dict(family='Inter, sans-serif', size=12, color='#555'),
                 margin=dict(l=40, r=40, t=48, b=40),
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         except Exception as exc:
             st.warning(f"Chart could not be rendered: {exc}")
     elif not chart_gen:
@@ -1644,7 +1644,7 @@ def _render_results(result: Dict[str, Any]) -> None:
         else:
             result_df = pd.DataFrame(rows)
             
-        st.dataframe(result_df, use_container_width=True, height=280)
+        st.dataframe(result_df, width='stretch', height=280)
         csv = result_df.to_csv(index=False).encode("utf-8")
         col_dl1, col_dl2 = st.columns([1, 1])
         with col_dl1:
