@@ -64,7 +64,7 @@ Rules:
 """
 
 def _parse_intent(user_query: str, schema: str) -> Dict[str, Any]:
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"].strip())
     user_message = (
         f"User query: {user_query}\n\n"
         f"Dataset schema:\n{schema}"
@@ -193,7 +193,7 @@ def _generate_insight_via_llm(
     hypothesis_data: Optional[Dict[str, Any]] = None,
     prediction_data: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"].strip())
     
     # Load past data profile from disk if available to make Q&A context-aware
     if intent_type in ["conversational", "prescriptive"]:
@@ -342,7 +342,7 @@ def run_omega(
     self-corrects errors, and serializes results for Streamlit.
     """
     from .interpreter import execute_code
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"].strip())
 
     # Step 1: Initialize empty/skipped state for all output files to prevent frontend hang
     logger.info("Initializing default output JSON states...")
