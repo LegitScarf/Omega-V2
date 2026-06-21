@@ -473,9 +473,8 @@ def fit_classification_model(
             return res
 
         # Standardize and map target (binary or multi-class)
-        # Ensure target column contains uniform type values to avoid sorting errors
-        if not pd.api.types.is_numeric_dtype(working_df[target_col]):
-            working_df[target_col] = working_df[target_col].astype(str)
+        # Always convert classification targets to strings to avoid mixed-type sorting issues (e.g. when replacing with 'Other')
+        working_df[target_col] = working_df[target_col].astype(str)
         
         unique_targets = sorted(working_df[target_col].unique().tolist())
         is_multiclass = len(unique_targets) > 2
