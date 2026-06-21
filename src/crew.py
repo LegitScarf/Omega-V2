@@ -461,6 +461,8 @@ RULES FOR YOUR PYTHON CODE:
 - Always handle missing/null values gracefully in code (e.g. dropna or fillna).
 - If asked to calculate correlations against a categorical column (e.g., target or feature is non-numeric/string), you MUST encode it numerically (e.g. using `df[col].astype('category').cat.codes` or label mapping) before running the correlation.
 - To maintain optimal speed and prevent memory issues on the cloud server, always sample the dataframe to a maximum of 15,000 rows (e.g. `df_sample = df.sample(n=min(15000, len(df)), random_state=42)`) before performing complex modeling, model training, or large statistics computations.
+- Never mix string indicators (like "Other" or "N/A") with numeric values in the same list or pandas Series if you plan to sort, group, or pass them to Plotly. Always cast the series to `astype(str)` if it contains mixed types.
+- When writing plotly charts, NEVER add a Figure object as a trace. Do not call `fig.add_trace(px.pie(...))`. Use Plotly Express figures directly or use `fig.add_trace(go.Pie(...))`.
 - Write clean, robust, and commented code.
 - Return ONLY the executable python code block enclosed inside ```python ... ``` fences. Do not include markdown text or explanations outside the code block.
 """
@@ -517,9 +519,20 @@ Please generate the Python code to perform this analysis and write the required 
                 break
             else:
                 logger.warning(f"Execution error on attempt {attempt}: {result['error']}")
+                
+                error_msg = result['error'] or ""
+                error_guidance = ""
+                if "TypeError" in error_msg and "str" in error_msg and ("int" in error_msg or "float" in error_msg or "NoneType" in error_msg):
+                    error_guidance = (
+                        "\n\n💡 TIP: You hit a type comparison error. Ensure that any column you are "
+                        "sorting, grouping, or passing to Plotly is explicitly cast to a uniform type "
+                        "(e.g., call `.astype(str)` or `.astype(float)`) before performing comparisons, "
+                        "grouping, unique value extraction, or sorting."
+                    )
+                
                 history.append({
                     "role": "user",
-                    "content": f"The code execution failed with the following error:\n{result['error']}\n\nPlease fix the bug and return the corrected python code."
+                    "content": f"The code execution failed with the following error:\n{error_msg}{error_guidance}\n\nPlease fix the bug and return the corrected python code."
                 })
         except Exception as e:
             logger.error(f"Error during agent completion loop: {e}")
