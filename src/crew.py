@@ -64,7 +64,16 @@ Rules:
 """
 
 def _parse_intent(user_query: str, schema: str) -> Dict[str, Any]:
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    if "GEMINI_API_KEY" in os.environ and os.environ["GEMINI_API_KEY"].strip():
+        client = OpenAI(
+            api_key=os.environ["GEMINI_API_KEY"],
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+        )
+        model_name = "gemini-1.5-pro"
+    else:
+        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        model_name = "gpt-4o-mini"
+
     user_message = (
         f"User query: {user_query}\n\n"
         f"Dataset schema:\n{schema}"
@@ -72,7 +81,7 @@ def _parse_intent(user_query: str, schema: str) -> Dict[str, Any]:
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model_name,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _INTENT_SYSTEM_PROMPT.strip()},
@@ -193,7 +202,15 @@ def _generate_insight_via_llm(
     hypothesis_data: Optional[Dict[str, Any]] = None,
     prediction_data: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    if "GEMINI_API_KEY" in os.environ and os.environ["GEMINI_API_KEY"].strip():
+        client = OpenAI(
+            api_key=os.environ["GEMINI_API_KEY"],
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+        )
+        model_name = "gemini-1.5-pro"
+    else:
+        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        model_name = "gpt-4o-mini"
     
     # Load past data profile from disk if available to make Q&A context-aware
     if intent_type in ["conversational", "prescriptive"]:
@@ -261,7 +278,7 @@ def _generate_insight_via_llm(
 
     try:
         completion_kwargs = {
-            "model": "gpt-4o-mini",
+            "model": model_name,
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -342,8 +359,15 @@ def run_omega(
     Formulates an analytical plan, writes Python code, runs it in a secure sandbox,
     self-corrects errors, and serializes results for Streamlit.
     """
-    from .interpreter import execute_code
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    if "GEMINI_API_KEY" in os.environ and os.environ["GEMINI_API_KEY"].strip():
+        client = OpenAI(
+            api_key=os.environ["GEMINI_API_KEY"],
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+        )
+        model_name = "gemini-1.5-pro"
+    else:
+        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        model_name = "gpt-4o-mini"
 
     # Step 1: Initialize empty/skipped state for all output files to prevent frontend hang
     logger.info("Initializing default output JSON states...")
@@ -529,8 +553,9 @@ Please generate the Python code to perform this analysis and write the required 
     for attempt in range(1, max_attempts + 1):
         logger.info(f"Attempting to generate python code (Attempt {attempt}/{max_attempts})...")
         try:
+            from .interpreter import execute_code
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=model_name,
                 messages=history,
                 temperature=0.1,
             )
