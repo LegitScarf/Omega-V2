@@ -29,6 +29,31 @@ if not logger.handlers:
     logger.addHandler(ch)
     logger.setLevel(logging.INFO)
 
+import time
+
+def _safe_create_completion(client, **kwargs):
+    model = kwargs.get("model", "")
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            return client.chat.completions.create(**kwargs)
+        except Exception as e:
+            err_str = str(e).lower()
+            if "429" in err_str or "rate_limit" in err_str or "resource_exhausted" in err_str:
+                if attempt < max_retries - 1:
+                    sleep_time = 5 * (attempt + 1)
+                    logger.warning(f"Rate limited by {model}. Retrying in {sleep_time}s... (Attempt {attempt+1}/{max_retries})")
+                    time.sleep(sleep_time)
+                    continue
+                
+                # Gemini Quota Fallback on free tier
+                if "gemini" in model.lower() and "quota" in err_str:
+                    fallback_model = "gemini-2.5-flash"
+                    logger.warning(f"Model {model} failed due to quota limits on the free tier. Falling back to {fallback_model}...")
+                    kwargs["model"] = fallback_model
+                    return client.chat.completions.create(**kwargs)
+            raise e
+
 # ── Intent parser ──────────────────────────────────────────────────────────────
 # Classified preprocessing step
 _INTENT_SYSTEM_PROMPT = """
@@ -64,12 +89,18 @@ Rules:
 """
 
 def _parse_intent(user_query: str, schema: str) -> Dict[str, Any]:
-    if "GEMINI_API_KEY" in os.environ and os.environ["GEMINI_API_KEY"].strip():
+    if "GROQ_API_KEY" in os.environ and os.environ["GROQ_API_KEY"].strip():
+        client = OpenAI(
+            api_key=os.environ["GROQ_API_KEY"],
+            base_url="https://api.groq.com/openai/v1"
+        )
+        model_name = "openai/gpt-oss-120b"
+    elif "GEMINI_API_KEY" in os.environ and os.environ["GEMINI_API_KEY"].strip():
         client = OpenAI(
             api_key=os.environ["GEMINI_API_KEY"],
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
         )
-        model_name = "gemini-1.5-pro"
+        model_name = "gemini-2.5-pro"
     else:
         client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
         model_name = "gpt-4o-mini"
@@ -80,7 +111,8 @@ def _parse_intent(user_query: str, schema: str) -> Dict[str, Any]:
     )
 
     try:
-        response = client.chat.completions.create(
+        response = _safe_create_completion(
+            client,
             model=model_name,
             response_format={"type": "json_object"},
             messages=[
@@ -202,12 +234,18 @@ def _generate_insight_via_llm(
     hypothesis_data: Optional[Dict[str, Any]] = None,
     prediction_data: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    if "GEMINI_API_KEY" in os.environ and os.environ["GEMINI_API_KEY"].strip():
+    if "GROQ_API_KEY" in os.environ and os.environ["GROQ_API_KEY"].strip():
+        client = OpenAI(
+            api_key=os.environ["GROQ_API_KEY"],
+            base_url="https://api.groq.com/openai/v1"
+        )
+        model_name = "openai/gpt-oss-120b"
+    elif "GEMINI_API_KEY" in os.environ and os.environ["GEMINI_API_KEY"].strip():
         client = OpenAI(
             api_key=os.environ["GEMINI_API_KEY"],
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
         )
-        model_name = "gemini-1.5-pro"
+        model_name = "gemini-2.5-pro"
     else:
         client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
         model_name = "gpt-4o-mini"
@@ -289,7 +327,7 @@ def _generate_insight_via_llm(
         if intent_type not in ["conversational", "prescriptive"]:
             completion_kwargs["max_tokens"] = 2048
 
-        response = client.chat.completions.create(**completion_kwargs)
+        response = _safe_create_completion(client, **completion_kwargs)
         raw = response.choices[0].message.content
         parsed = json.loads(raw)
         
@@ -359,12 +397,18 @@ def run_omega(
     Formulates an analytical plan, writes Python code, runs it in a secure sandbox,
     self-corrects errors, and serializes results for Streamlit.
     """
-    if "GEMINI_API_KEY" in os.environ and os.environ["GEMINI_API_KEY"].strip():
+    if "GROQ_API_KEY" in os.environ and os.environ["GROQ_API_KEY"].strip():
+        client = OpenAI(
+            api_key=os.environ["GROQ_API_KEY"],
+            base_url="https://api.groq.com/openai/v1"
+        )
+        model_name = "openai/gpt-oss-120b"
+    elif "GEMINI_API_KEY" in os.environ and os.environ["GEMINI_API_KEY"].strip():
         client = OpenAI(
             api_key=os.environ["GEMINI_API_KEY"],
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
         )
-        model_name = "gemini-1.5-pro"
+        model_name = "gemini-2.5-pro"
     else:
         client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
         model_name = "gpt-4o-mini"
@@ -554,7 +598,8 @@ Please generate the Python code to perform this analysis and write the required 
         logger.info(f"Attempting to generate python code (Attempt {attempt}/{max_attempts})...")
         try:
             from .interpreter import execute_code
-            response = client.chat.completions.create(
+            response = _safe_create_completion(
+                client,
                 model=model_name,
                 messages=history,
                 temperature=0.1,
