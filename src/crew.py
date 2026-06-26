@@ -107,72 +107,72 @@ def _parse_intent(user_query: str, schema: str) -> Dict[str, Any]:
 _DESCRIPTIVE_INSIGHT_PROMPT = """
 You are a senior data analyst. Your job is to translate descriptive statistics and data profiling results into a clear, jargon-free data health and completeness overview for a non-technical user.
 
-You must return ONLY a valid JSON object with exactly these four keys:
-- "insight_text": A string containing exactly 3 to 5 sentences summarizing the dataset:
-    * Summarize the scale and scope of the dataset (e.g. number of rows, features, time range covered).
-    * Outline the general completeness of the records, highlighting any columns with notable missing values (nulls) or data quality flags.
-    * Mention if any major outliers or structural irregularities were detected that the user should be aware of.
-- "key_metric": A short, clean string representing the overall scale of the data (e.g. "16,598 Game Records", "205 Vehicle Entries").
-- "follow_up_suggestions": A list of exactly 2 plain-English follow-up questions that the user might naturally want to ask next about the dataset structure or contents.
-- "error": null (or a plain-English error explanation if the results are completely empty or corrupt).
-
-Rules:
-1. STRICTLY avoid technical terms like SQL, dataframe, aggregation, correlation coefficient, p-value, etc. Use business-friendly synonyms (e.g. "records" or "entries" instead of "rows", "attributes" or "characteristics" instead of "columns").
-2. Do not recommend business or sales strategies (e.g. do not say "consider focusing on marketing strategies..."). This is a structural descriptive profiling task; describe the data as it is.
-3. Keep the tone professional, objective, and analytical.
+You must return ONLY a valid JSON object with exactly these five keys:
+- "insight_text": A string containing exactly 3 to 5 sentences summarizing the dataset.
+- "key_metric": A short, clean string representing the overall scale of the data (e.g. "16,598 Game Records").
+- "follow_up_suggestions": A list of exactly 2 plain-English follow-up questions.
+- "error": null (or error message).
+- "components": A list of layout components to render (e.g. metric_grid with total rows/columns, table of observations/attributes). Follow this structure:
+  [
+    {"type": "markdown", "content": "detailed markdown content"},
+    {"type": "metric_grid", "metrics": [{"label": "Metric Name", "value": "Metric Value"}]},
+    {"type": "table", "headers": ["Col1", "Col2"], "rows": [["Val1", "Val2"]]},
+    {"type": "chart", "plotly_spec": {}}
+  ]
 """
 
 _ANALYTICAL_INSIGHT_PROMPT = """
 You are a senior business analyst. Your job is to translate statistical data, queries, and analytical findings into a clear, jargon-free business insight for a non-technical user.
 
-You must return ONLY a valid JSON object with exactly these four keys:
-- "insight_text": A string containing exactly 3 to 5 sentences of business insight:
-    * State the single most important analytical finding or takeaway directly (e.g. top performers, strong correlations, distinct trends).
-    * Provide concrete context or comparison using specific values or proportions from the results.
-    * State one concrete, actionable business recommendation based on this finding.
-- "key_metric": A short string representing the single most important number or finding (e.g., "Top Genre: Action (3.2M)", "Correlation: Strong Positive").
-- "follow_up_suggestions": A list of exactly 2 plain-English, conversational follow-up questions that the user might naturally want to ask next to explore this finding further.
-- "error": null (or a plain-English error explanation if the results are completely empty or insufficient to make sense of).
-
-Rules:
-1. STRICTLY avoid technical database or programming terms (e.g. do not say "SQL", "dataframe", "aggregation", "query", "DuckDB", "coefficient", "null", "columns", "rows", "pandas", etc.). Use business-friendly synonyms (e.g. "totals" instead of "aggregations", "records" instead of "rows").
-2. Only reference numbers and categories present in the provided analytical context. Do not invent any statistics.
-3. Keep the tone conversational, professional, and action-oriented.
+You must return ONLY a valid JSON object with exactly these five keys:
+- "insight_text": A string containing exactly 3 to 5 sentences of business insight (most important takeaway, values/proportions context, and recommendation).
+- "key_metric": A short string representing the single most important number or finding (e.g., "Top Genre: Action (3.2M)").
+- "follow_up_suggestions": A list of exactly 2 plain-English, conversational follow-up questions.
+- "error": null (or error message).
+- "components": A list of layout components to render (always include a metric_grid showing the key statistics, and a table/markdown breakdown of the values). Follow this structure:
+  [
+    {"type": "markdown", "content": "detailed markdown content"},
+    {"type": "metric_grid", "metrics": [{"label": "Metric Name", "value": "Metric Value"}]},
+    {"type": "table", "headers": ["Col1", "Col2"], "rows": [["Val1", "Val2"]]},
+    {"type": "chart", "plotly_spec": {}}
+  ]
 """
 
 _CONVERSATIONAL_INSIGHT_PROMPT = """
 You are the user's personal data analyst, named Omega.
-Your goal is to conversationally, clearly, and directly answer the user's advisory, Q&A, or follow-up question using the provided context of their dataset.
+Your goal is to conversationally, clearly, and directly answer the user's advisory, Q&A, or follow-up question.
 
-You must return ONLY a valid JSON object with exactly these four keys:
-- "insight_text": A highly detailed, thorough string containing a comprehensive, clear, and actionable response explaining your data analysis, observations, and advice (typically 2 to 3 detailed paragraphs with deep analytical coverage).
-- "key_metric": A short, clean string representing the advice topic (e.g. "Advice: Impute Nulls", "Data Transformation").
-- "follow_up_suggestions": A list of exactly 2 conversational follow-up questions the user might naturally want to ask you next.
-- "error": null (or a plain-English error explanation if you cannot answer the question).
-
-Rules:
-1. Use professional, analytical language. You may reference standard statistical, analytical, or modeling concepts (like standard errors, correlation coefficients, R-squared, data types, missing values, or regression parameters) where appropriate to make your findings mathematically sound, but present them in a clear, business-friendly context.
-2. Ground your advice directly in the provided dataset context. If the context contains descriptive stats (like missing values or outliers), refer to the actual numbers and columns.
-3. Be helpful, clean, and direct. If the query discusses system logs, security events, or technical data (e.g., failed logins, attack types, cyber threats), include specific, domain-relevant security observations.
+You must return ONLY a valid JSON object with exactly these five keys:
+- "insight_text": A highly detailed, thorough string containing a comprehensive response (typically 2 to 3 detailed paragraphs).
+- "key_metric": A short, clean string representing the advice topic.
+- "follow_up_suggestions": A list of exactly 2 conversational follow-up questions.
+- "error": null (or error message).
+- "components": A list of layout components to render (incorporate a markdown card, metrics, and a table if data is discussed). Follow this structure:
+  [
+    {"type": "markdown", "content": "detailed markdown content"},
+    {"type": "metric_grid", "metrics": [{"label": "Metric Name", "value": "Metric Value"}]},
+    {"type": "table", "headers": ["Col1", "Col2"], "rows": [["Val1", "Val2"]]}
+  ]
 """
 
 _PRESCRIPTIVE_INSIGHT_PROMPT = """
 You are the user's senior business consultant and prescriptive analytics advisor, named Omega.
 Your goal is to propose a concrete, actionable, and data-grounded strategy plan to address the user's query.
 
-You must return ONLY a valid JSON object with exactly these seven keys:
-- "insight_text": A detailed, thorough string containing a comprehensive, clear strategic analysis summarizing the direction (typically 2 detailed paragraphs outlining the operational context).
-- "key_metric": A short topic label (e.g., "Market Entry Plan", "Optimization Framework").
-- "strategies": A list of 3 to 5 specific, highly detailed, data-grounded strategies (plain-English sentences describing specific programs or technical controls).
-- "priority_matrix": A list of 3 to 5 objects: [{"action": "Action description", "impact": "High" or "Medium" or "Low", "effort": "High" or "Medium" or "Low"}] representing the proposed activities.
-- "risks": A list of 2 to 4 potential risks or data quality concerns (e.g., missing records, high residuals, or sample limitations).
+You must return ONLY a valid JSON object with exactly these eight keys:
+- "insight_text": A detailed, thorough string containing a comprehensive strategic analysis (typically 2 detailed paragraphs).
+- "key_metric": A short topic label (e.g., "Market Entry Plan").
+- "strategies": A list of 3 to 5 specific, highly detailed strategies.
+- "priority_matrix": A list of 3 to 5 objects: [{"action": "Action description", "impact": "High"/"Medium"/"Low", "effort": "High"/"Medium"/"Low"}].
+- "risks": A list of 2 to 4 potential risks or data quality concerns.
 - "follow_up_suggestions": A list of exactly 2 plain-English, conversational follow-up questions.
-- "error": null (or a plain-English error explanation if you cannot answer the question).
-
-Rules:
-1. Ground every strategy and matrix action in the provided dataset schema, stats, and previous results.
-2. Use professional, analytical language. You may reference standard statistical, analytical, or modeling concepts (like standard errors, correlation coefficients, R-squared, data types, missing values, or regression parameters) where appropriate to make your findings mathematically sound, but present them in a clear, business-friendly context.
-3. You MUST generate at least 3-5 high-fidelity strategy recommendations. Ensure they are concrete, specific actions. If the query covers operational issues or security events (like brute force attacks, failed logins, system performance), customize the matrix actions and strategies to map directly to technical controls (e.g., credential rate limiting, multi-factor authentication, account locking).
+- "error": null (or error message).
+- "components": A list of layout components to render (always include a markdown summary, metric_grid, and action table). Follow this structure:
+  [
+    {"type": "markdown", "content": "detailed markdown content"},
+    {"type": "metric_grid", "metrics": [{"label": "Metric Name", "value": "Metric Value"}]},
+    {"type": "table", "headers": ["Proposed Action", "Impact", "Effort"], "rows": [["Action 1", "High", "Low"]]}
+  ]
 """
 
 def _load_json_safely(filename: str) -> Dict[str, Any]:
@@ -335,6 +335,7 @@ def run_omega(
     dataframe,
     step_callback: Optional[Callable] = None,
     task_callback: Optional[Callable] = None,
+    chat_history:  Optional[list] = None,
 ) -> Dict[str, Any]:
     """
     Agentic Reasoning Platform (Omega V3).
@@ -365,6 +366,15 @@ def run_omega(
     shape_str = f"{dataframe.shape[0]} rows, {dataframe.shape[1]} columns"
     sample_str = dataframe.head(5).to_string()
 
+    # Step 2.5: Build chat history prompt context
+    history_context_str = ""
+    if chat_history:
+        history_context_str = "\nPrevious Conversation turns:\n"
+        for turn in chat_history:
+            q = turn.get("query", "")
+            ans = turn.get("insight_text", "")
+            history_context_str += f"- User asked: \"{q}\"\n- Insight returned: \"{ans}\"\n"
+
     system_prompt = """You are Omega V3, an autonomous senior data scientist agent.
 Your goal is to solve the user's business and data analytics queries by generating executable Python code.
 The user dataset is loaded in memory as a pandas DataFrame named `df`.
@@ -375,7 +385,15 @@ You have access to the following python packages:
 - `scipy`
 - `plotly`
 - `plotly.graph_objects` as `go`
-- `plotly.express` as `px`
+- `plotly.express` as `px`"""
+
+    if history_context_str:
+        system_prompt = system_prompt.replace(
+            "The user dataset is loaded in memory as a pandas DataFrame named `df`.",
+            f"The user dataset is loaded in memory as a pandas DataFrame named `df`.\n{history_context_str}"
+        )
+
+    system_prompt += """
 
 You also have access to these pre-injected helper functions:
 - `get_output_path(filename: str) -> str`: gets the correct output path for files.
@@ -454,8 +472,33 @@ Specifically, you should write the following files depending on what is relevant
      "intent_type": "descriptive/forecast/regression/classification/clustering/prescriptive",
      "strategies": list of strings for strategic recommendations,
      "priority_matrix": list of dicts with keys "action", "impact", "effort" (each 'High/Medium/Low'),
-     "risks": list of strings for potential risks/limitations
+     "risks": list of strings for potential risks/limitations,
+     "components": [
+       {
+         "type": "markdown",
+         "content": "Rich markdown text, subheadings, bullet points"
+       },
+       {
+         "type": "metric_grid",
+         "metrics": [
+           {"label": "Metric Name", "value": "Metric Value"}
+         ]
+       },
+       {
+         "type": "table",
+         "headers": ["Header1", "Header2", ...],
+         "rows": [
+           ["Val1", "Val2", ...],
+           ...
+         ]
+       },
+       {
+         "type": "chart",
+         "plotly_spec": the plotly figure exported as a dict
+       }
+     ]
    }
+   NOTE: ALWAYS compose a rich, comprehensive sequence of layout "components" in `insight.json` for ALL queries (combining markdown explanation sections, key metric highlights, comparison/summary data tables, and beautiful interactive charts side-by-side) to ensure responses are highly detailed, visual, engaging, and data-rich (like Claude Artifacts). Never return just a single sentence or metric.
 
 RULES FOR YOUR PYTHON CODE:
 - Always handle missing/null values gracefully in code (e.g. dropna or fillna).

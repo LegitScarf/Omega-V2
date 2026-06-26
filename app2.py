@@ -668,6 +668,13 @@ def _start_crew_run(user_query: str) -> None:
     clear_output_dir()
 
     tracker = OmegaProgressTracker()
+    
+    # Grab context from history list
+    chat_history = []
+    if "history" in st.session_state and st.session_state.history:
+        # Pass the last 5 turns to keep context window light but highly informative
+        chat_history = st.session_state.history[:5]
+
     runner  = CrewRunner(
         target_fn=run_omega,
         kwargs={
@@ -675,6 +682,7 @@ def _start_crew_run(user_query: str) -> None:
             "dataframe":     st.session_state.df,
             "step_callback": None,
             "task_callback": tracker.on_task_complete,
+            "chat_history":  chat_history,
         },
     )
 
@@ -716,6 +724,8 @@ def _finalise_run() -> None:
     hypothesis   = raw["hypothesis"]
     prediction   = raw["prediction"]
 
+    components   = raw["insight"].get("components", [])
+
     result = {
         "query":        runner._kwargs.get("user_query", ""),
         "insight_text": insight_text,
@@ -734,6 +744,7 @@ def _finalise_run() -> None:
         "truncated":    truncated,
         "hypothesis":   hypothesis,
         "prediction":   prediction,
+        "components":   components,
         "raw":          raw,
     }
 
@@ -881,99 +892,192 @@ def _tag(text: str, level: str, kind: str) -> str:
 
 def _render_results(result: Dict[str, Any]) -> None:
 
-    # ── 1. Insight card ────────────────────────────────────────────────────────
-    insight_text = result.get("insight_text", "")
-    key_metric   = result.get("key_metric", "")
-    intent_type  = result.get("intent_type", "")
-    strategies   = result.get("strategies", [])
-    priority_matrix = result.get("priority_matrix", [])
-    risks        = result.get("risks", [])
+    components = result.get("components", [])
 
-    if insight_text:
-        is_prescriptive = (intent_type == "prescriptive") or (len(strategies) > 0)
-        if is_prescriptive:
-            if not strategies:
-                strategies = [
-                    "Implement multi-factor authentication (MFA) across all administration/login endpoints to mitigate automated brute force attempts.",
-                    "Enforce rate-limiting (e.g., maximum 5 failed attempts per IP per minute) and IP-based temporary blocks.",
-                    "Audit login logs to isolate and investigate high-frequency source IPs and user accounts."
-                ]
-            if not priority_matrix:
-                priority_matrix = [
-                    {"action": "Enable Multi-Factor Authentication (MFA)", "impact": "High", "effort": "Low"},
-                    {"action": "Enforce Rate Limiting & Lockouts", "impact": "High", "effort": "Low"},
-                    {"action": "Establish Centralized Log Alerting", "impact": "Medium", "effort": "Medium"}
-                ]
-            if not risks:
-                risks = [
-                    "User friction during MFA adoption.",
-                    "False positives blocking legitimate users if rate-limiting rules are too aggressive."
-                ]
+    if components:
+        # Render dynamic components layout
+        for idx, comp in enumerate(components):
+            c_type = comp.get("type")
+            if c_type == "markdown":
+                content = comp.get("content", "")
+                if content:
+                    st.markdown(content)
+            elif c_type == "metric_grid":
+                metrics = comp.get("metrics", [])
+                if metrics:
+                    cols = st.columns(len(metrics))
+                    for m_idx, metric in enumerate(metrics):
+                        with cols[m_idx]:
+                            label = metric.get("label", "")
+                            value = metric.get("value", "")
+                            # If value is a float-like string or float, try rounding it to 2 decimal places
+                            try:
+                                float_val = float(value)
+                                if not float_val.is_integer():
+                                    value = f"{float_val:.2f}"
+                                else:
+                                    value = f"{int(float_val)}"
+                            except (ValueError, TypeError):
+                                pass
+                            # Use custom aesthetic container aligned with app2's styling
+                            st.markdown(
+                                f"""
+                                <div style="background-color: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; text-align: center; box-shadow: var(--shadow-sm); margin-bottom: 12px;">
+                                    <div style="font-size: 11px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">{label}</div>
+                                    <div style="font-size: 22px; font-weight: 800; color: var(--text-primary); font-family: var(--font-mono);">{value}</div>
+                                </div>
+                                """,
+                                unsafe_allow_html=True
+                            )
+            elif c_type == "table":
+                headers = comp.get("headers", [])
+                rows = comp.get("rows", [])
+                if rows:
+                    df_comp = pd.DataFrame(rows, columns=headers if headers else None)
+                    st.dataframe(df_comp, use_container_width=True, height=280)
+            elif c_type == "chart":
+                plotly_spec = comp.get("plotly_spec")
+                if plotly_spec:
+                    try:
+                        # Deep sanitize
+                        import copy
+                        def deep_sanitize(val):
+                            if isinstance(val, float) and (np.isnan(val) or np.isinf(val)):
+                                return None
+                            elif isinstance(val, dict):
+                                # If it's a binary-encoded array from Plotly, decode it
+                                if "bdata" in val and "dtype" in val:
+                                    import base64
+                                    import gzip
+                                    try:
+                                        bdata = val["bdata"]
+                                        dtype = val["dtype"]
+                                        raw_bytes = base64.b64decode(bdata)
+                                        # Detect gzip magic bytes (0x1f 0x8b)
+                                        if raw_bytes.startswith(b"\x1f\x8b"):
+                                            raw_bytes = gzip.decompress(raw_bytes)
+                                        arr = np.frombuffer(raw_bytes, dtype=dtype)
+                                        return arr.tolist()
+                                    except Exception:
+                                        pass
+                                return {k: deep_sanitize(v) for k, v in val.items()}
+                            elif isinstance(val, list):
+                                return [deep_sanitize(v) for v in val]
+                            return val
+                        import json
+                        spec_to_sanitize = plotly_spec
+                        if isinstance(spec_to_sanitize, str):
+                            try:
+                                spec_to_sanitize = json.loads(spec_to_sanitize)
+                            except Exception:
+                                pass
+                        sanitized_spec = deep_sanitize(copy.deepcopy(spec_to_sanitize))
+                        fig = go.Figure(sanitized_spec)
+                        fig.update_layout(
+                            plot_bgcolor='#FFFFFF',
+                            paper_bgcolor='#FAFAFA',
+                            font=dict(family='Inter, sans-serif', size=12, color='#555'),
+                            margin=dict(l=40, r=40, t=48, b=40),
+                        )
+                        st.plotly_chart(fig, use_container_width=True, key=f"comp_chart_{idx}")
+                    except Exception as e:
+                        st.warning(f"Component chart could not be rendered: {e}")
+            st.write("") # small spacer
 
-            # Prescriptive variant
-            strat_items = "".join(f"<li style='margin-bottom:6px'>{s}</li>" for s in strategies)
+    else:
+        # ── 1. Insight card ────────────────────────────────────────────────────────
+        insight_text = result.get("insight_text", "")
+        key_metric   = result.get("key_metric", "")
+        intent_type  = result.get("intent_type", "")
+        strategies   = result.get("strategies", [])
+        priority_matrix = result.get("priority_matrix", [])
+        risks        = result.get("risks", [])
 
-            matrix_rows = ""
-            for item in priority_matrix:
-                imp = item.get("impact", "").lower()
-                eff = item.get("effort", "").lower()
-                imp_tag = _tag(imp.capitalize(), imp, "impact")
-                eff_tag = _tag(eff.capitalize(), eff, "effort")
-                matrix_rows += f"""
-                <tr>
-                    <td>{item.get('action','')}</td>
-                    <td style="text-align:center">{imp_tag}</td>
-                    <td style="text-align:center">{eff_tag}</td>
-                </tr>"""
+        if insight_text:
+            is_prescriptive = (intent_type == "prescriptive") or (len(strategies) > 0)
+            if is_prescriptive:
+                if not strategies:
+                    strategies = [
+                        "Implement multi-factor authentication (MFA) across all administration/login endpoints to mitigate automated brute force attempts.",
+                        "Enforce rate-limiting (e.g., maximum 5 failed attempts per IP per minute) and IP-based temporary blocks.",
+                        "Audit login logs to isolate and investigate high-frequency source IPs and user accounts."
+                    ]
+                if not priority_matrix:
+                    priority_matrix = [
+                        {"action": "Enable Multi-Factor Authentication (MFA)", "impact": "High", "effort": "Low"},
+                        {"action": "Enforce Rate Limiting & Lockouts", "impact": "High", "effort": "Low"},
+                        {"action": "Establish Centralized Log Alerting", "impact": "Medium", "effort": "Medium"}
+                    ]
+                if not risks:
+                    risks = [
+                        "User friction during MFA adoption.",
+                        "False positives blocking legitimate users if rate-limiting rules are too aggressive."
+                    ]
 
-            matrix_html = f"""
-            <div style="margin-top:16px">
-                <div class="hyp-label">Implementation Priority Matrix</div>
-                <table class="omega-table">
-                    <thead><tr>
-                        <th>Proposed Action</th>
-                        <th style="width:80px;text-align:center">Impact</th>
-                        <th style="width:80px;text-align:center">Effort</th>
-                    </tr></thead>
-                    <tbody>{matrix_rows}</tbody>
-                </table>
-            </div>""" if matrix_rows else ""
+                # Prescriptive variant
+                strat_items = "".join(f"<li style='margin-bottom:6px'>{s}</li>" for s in strategies)
 
-            risk_items = "".join(f"<li>{r}</li>" for r in risks)
-            risks_html = f"""
-            <div class="risk-box">
-                <div class="risk-box-label">Potential Risks & Limitations</div>
-                <ul>{risk_items}</ul>
-            </div>""" if risk_items else ""
+                matrix_rows = ""
+                for item in priority_matrix:
+                    imp = item.get("impact", "").lower()
+                    eff = item.get("effort", "").lower()
+                    imp_tag = _tag(imp.capitalize(), imp, "impact")
+                    eff_tag = _tag(eff.capitalize(), eff, "effort")
+                    matrix_rows += f"""
+                    <tr>
+                        <td>{item.get('action','')}</td>
+                        <td style="text-align:center">{imp_tag}</td>
+                        <td style="text-align:center">{eff_tag}</td>
+                    </tr>"""
 
-            metric_chip = f"<div class='metric-callout'>{key_metric}</div>" if key_metric else ""
+                matrix_html = f"""
+                <div style="margin-top:16px">
+                    <div class="hyp-label">Implementation Priority Matrix</div>
+                    <table class="omega-table">
+                        <thead><tr>
+                            <th>Proposed Action</th>
+                            <th style="width:80px;text-align:center">Impact</th>
+                            <th style="width:80px;text-align:center">Effort</th>
+                        </tr></thead>
+                        <tbody>{matrix_rows}</tbody>
+                    </table>
+                </div>""" if matrix_rows else ""
 
-            pres_html = f"""
-            <div class="omega-card" style="--card-accent: var(--orange)">
-                <div class="card-eyebrow">🧭 Prescriptive Strategy</div>
-                {metric_chip}
-                <div class="card-body" style="margin-bottom:14px">{insight_text}</div>
-                <div class="hyp-label" style="margin-top:4px">Actionable Strategies</div>
-                <ul style="margin:6px 0 0 0; padding-left:20px; font-size:14px; color:var(--text-secondary); line-height:1.8">
-                    {strat_items}
-                </ul>
-                {matrix_html}
-                {risks_html}
-            </div>
-            """
-            clean_pres_html = "".join(line.strip() for line in pres_html.split("\n"))
-            st.markdown(clean_pres_html, unsafe_allow_html=True)
+                risk_items = "".join(f"<li>{r}</li>" for r in risks)
+                risks_html = f"""
+                <div class="risk-box">
+                    <div class="risk-box-label">Potential Risks & Limitations</div>
+                    <ul>{risk_items}</ul>
+                </div>""" if risk_items else ""
 
-        else:
-            # Standard insight
-            metric_chip = f"<div class='metric-callout'>{key_metric}</div>" if key_metric else ""
-            st.markdown(f"""
-            <div class="omega-card" style="--card-accent: var(--accent)">
-                <div class="card-eyebrow">💡 Key Insight</div>
-                {metric_chip}
-                <div class="card-body">{insight_text}</div>
-            </div>
-            """, unsafe_allow_html=True)
+                metric_chip = f"<div class='metric-callout'>{key_metric}</div>" if key_metric else ""
+
+                pres_html = f"""
+                <div class="omega-card" style="--card-accent: var(--orange)">
+                    <div class="card-eyebrow">🧭 Prescriptive Strategy</div>
+                    {metric_chip}
+                    <div class="card-body" style="margin-bottom:14px">{insight_text}</div>
+                    <div class="hyp-label" style="margin-top:4px">Actionable Strategies</div>
+                    <ul style="margin:6px 0 0 0; padding-left:20px; font-size:14px; color:var(--text-secondary); line-height:1.8">
+                        {strat_items}
+                    </ul>
+                    {matrix_html}
+                    {risks_html}
+                </div>
+                """
+                clean_pres_html = "".join(line.strip() for line in pres_html.split("\n"))
+                st.markdown(clean_pres_html, unsafe_allow_html=True)
+
+            else:
+                # Standard insight
+                metric_chip = f"<div class='metric-callout'>{key_metric}</div>" if key_metric else ""
+                st.markdown(f"""
+                <div class="omega-card" style="--card-accent: var(--accent)">
+                    <div class="card-eyebrow">💡 Key Insight</div>
+                    {metric_chip}
+                    <div class="card-body">{insight_text}</div>
+                </div>
+                """, unsafe_allow_html=True)
 
     # ── 1.5. Hypothesis Test ───────────────────────────────────────────────────
     hypothesis = result.get("hypothesis", {})
@@ -1584,14 +1688,44 @@ def _render_results(result: Dict[str, Any]) -> None:
 
     if chart_gen and chart_spec and not has_forecast and not has_regression and not has_classification and not has_clustering:
         try:
-            fig = go.Figure(chart_spec)
+            import copy
+            def deep_sanitize(val):
+                if isinstance(val, float) and (np.isnan(val) or np.isinf(val)):
+                    return None
+                elif isinstance(val, dict):
+                    if "bdata" in val and "dtype" in val:
+                        import base64
+                        import gzip
+                        try:
+                            bdata = val["bdata"]
+                            dtype = val["dtype"]
+                            raw_bytes = base64.b64decode(bdata)
+                            if raw_bytes.startswith(b"\x1f\x8b"):
+                                raw_bytes = gzip.decompress(raw_bytes)
+                            arr = np.frombuffer(raw_bytes, dtype=dtype)
+                            return arr.tolist()
+                        except Exception:
+                            pass
+                    return {k: deep_sanitize(v) for k, v in val.items()}
+                elif isinstance(val, list):
+                    return [deep_sanitize(v) for v in val]
+                return val
+            import json
+            spec_to_sanitize = chart_spec
+            if isinstance(spec_to_sanitize, str):
+                try:
+                    spec_to_sanitize = json.loads(spec_to_sanitize)
+                except Exception:
+                    pass
+            sanitized_spec = deep_sanitize(copy.deepcopy(spec_to_sanitize))
+            fig = go.Figure(sanitized_spec)
             fig.update_layout(
                 plot_bgcolor='#FFFFFF',
                 paper_bgcolor='#FAFAFA',
                 font=dict(family='Inter, sans-serif', size=12, color='#555'),
                 margin=dict(l=40, r=40, t=48, b=40),
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="main_layout_chart")
         except Exception as exc:
             st.warning(f"Chart could not be rendered: {exc}")
     elif not chart_gen:
