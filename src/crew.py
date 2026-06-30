@@ -81,7 +81,7 @@ def _parse_intent(user_query: str, schema: str) -> Dict[str, Any]:
 
     try:
         response = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-haiku-4-5-20251001",
             system=_INTENT_SYSTEM_PROMPT.strip(),
             messages=[
                 {"role": "user", "content": user_message},
@@ -274,7 +274,7 @@ def _generate_insight_via_llm(
             max_tokens = 4096
 
         response = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-haiku-4-5-20251001",
             system=system_prompt,
             messages=[
                 {"role": "user", "content": f"Analytical Context:\n{context}"}
@@ -541,7 +541,7 @@ Please generate the Python code to perform this analysis and write the required 
         try:
             claude_messages = [msg for msg in history if msg["role"] != "system"]
             response = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-haiku-4-5-20251001",
                 system=system_prompt,
                 messages=claude_messages,
                 temperature=0.1,
