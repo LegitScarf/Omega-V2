@@ -118,13 +118,58 @@ def generate_pdf_report(result: Dict[str, Any]) -> BytesIO:
             # Recreate figure using Plotly dict spec
             fig = go.Figure(chart_spec)
             
-            # Apply styling parameters compatible with PDF format (light background)
+            # Reset layout template to plotly_white and apply premium design rules
             fig.update_layout(
+                template="plotly_white",
                 plot_bgcolor='#FFFFFF',
                 paper_bgcolor='#FFFFFF',
-                font=dict(color='#333333'),
+                font=dict(
+                    family="Helvetica Neue, Helvetica, Arial, sans-serif",
+                    size=9,
+                    color='#374151'  # Tailwind Gray-700
+                ),
+                title=dict(
+                    font=dict(
+                        family="Helvetica Neue, Helvetica, Arial, sans-serif",
+                        size=13,
+                        color='#111827'  # Tailwind Gray-900
+                    )
+                ),
                 margin=dict(l=40, r=40, t=50, b=40)
             )
+            
+            # Refine axes lines and gridlines
+            fig.update_xaxes(
+                showgrid=True,
+                gridcolor='#F3F4F6',  # Very light grey gridlines
+                linecolor='#E5E7EB',  # Clean border line
+                tickfont=dict(color='#6B7280'),
+                zerolinecolor='#E5E7EB'
+            )
+            fig.update_yaxes(
+                showgrid=True,
+                gridcolor='#F3F4F6',
+                linecolor='#E5E7EB',
+                tickfont=dict(color='#6B7280'),
+                zerolinecolor='#E5E7EB'
+            )
+            
+            # Update trace aesthetics dynamically (e.g. lines, markers, colors)
+            for trace in fig.data:
+                # Map old template/generic colors to premium colors
+                if hasattr(trace, 'marker') and trace.marker:
+                    if hasattr(trace.marker, 'color') and trace.marker.color == "#4f86c6":
+                        trace.marker.color = "#2563EB"  # Vibrant brand blue
+                if hasattr(trace, 'line') and trace.line:
+                    if hasattr(trace.line, 'color'):
+                        if trace.line.color == "#4f86c6":
+                            trace.line.color = "#2563EB"
+                        elif trace.line.color == "#e07b39":
+                            trace.line.color = "#F97316"  # Vibrant orange
+                    # Smooth line charts
+                    if hasattr(trace, 'mode') and trace.mode and "lines" in trace.mode:
+                        trace.line.shape = "spline"
+                        trace.line.width = 2.5
             
             # Convert to PNG image in memory
             # Kaleido engine runs inside plotly's to_image

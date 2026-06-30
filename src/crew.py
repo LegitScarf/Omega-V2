@@ -4,7 +4,16 @@ import logging
 from typing import Dict, Any, Optional, Callable
 from pathlib import Path
 
-from openai import OpenAI
+from anthropic import Anthropic
+import re
+
+def _clean_json_response(raw: str) -> str:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        match = re.search(r"```(?:json)?\s*(.*?)\s*```", raw, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+    return raw
 
 from .tools import (
     compute_eda_stats,
@@ -64,25 +73,25 @@ Rules:
 """
 
 def _parse_intent(user_query: str, schema: str) -> Dict[str, Any]:
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     user_message = (
         f"User query: {user_query}\n\n"
         f"Dataset schema:\n{schema}"
     )
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            response_format={"type": "json_object"},
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            system=_INTENT_SYSTEM_PROMPT.strip(),
             messages=[
-                {"role": "system", "content": _INTENT_SYSTEM_PROMPT.strip()},
-                {"role": "user",   "content": user_message},
+                {"role": "user", "content": user_message},
             ],
             temperature=0,
             max_tokens=512,
         )
-        raw = response.choices[0].message.content
-        parsed = json.loads(raw)
+        raw = response.content[0].text
+        cleaned_raw = _clean_json_response(raw)
+        parsed = json.loads(cleaned_raw)
 
         # Validate required keys are present
         required = {"intent_type", "target_columns", "filters", "desired_output"}
@@ -193,7 +202,7 @@ def _generate_insight_via_llm(
     hypothesis_data: Optional[Dict[str, Any]] = None,
     prediction_data: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     
     # Load past data profile from disk if available to make Q&A context-aware
     if intent_type in ["conversational", "prescriptive"]:
@@ -225,11 +234,11 @@ def _generate_insight_via_llm(
         context += "Visualisation Config:\n"
         context += f"Chart Type: {chart_data.get('chart_type')}\n"
         context += f"Chart Title: {chart_data.get('chart_title')}\n\n"
-
+ 
     if hypothesis_data and hypothesis_data.get("status") != "skipped":
         context += "Statistical Hypothesis Test Results:\n"
         context += json.dumps(hypothesis_data, indent=2) + "\n\n"
-
+ 
     if prediction_data and prediction_data.get("status") != "skipped":
         if prediction_data.get("status") == "regression":
             context += "Fitted Multiple Linear Regression Model:\n"
@@ -248,7 +257,7 @@ def _generate_insight_via_llm(
                 "forecast_values": prediction_data.get("forecast_values"),
                 "model_metrics": prediction_data.get("model_metrics")
             }, indent=2) + "\n\n"
-
+ 
     # Select system prompt dynamically based on the intent
     if intent_type == "descriptive":
         system_prompt = _DESCRIPTIVE_INSIGHT_PROMPT.strip()
@@ -258,23 +267,24 @@ def _generate_insight_via_llm(
         system_prompt = _PRESCRIPTIVE_INSIGHT_PROMPT.strip()
     else:
         system_prompt = _ANALYTICAL_INSIGHT_PROMPT.strip()
-
+ 
     try:
-        completion_kwargs = {
-            "model": "gpt-4o-mini",
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": system_prompt},
+        max_tokens = 2048
+        if intent_type in ["conversational", "prescriptive"]:
+            max_tokens = 4096
+
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            system=system_prompt,
+            messages=[
                 {"role": "user", "content": f"Analytical Context:\n{context}"}
             ],
-            "temperature": 0.2,
-        }
-        if intent_type not in ["conversational", "prescriptive"]:
-            completion_kwargs["max_tokens"] = 2048
-
-        response = client.chat.completions.create(**completion_kwargs)
-        raw = response.choices[0].message.content
-        parsed = json.loads(raw)
+            temperature=0.2,
+            max_tokens=max_tokens,
+        )
+        raw = response.content[0].text
+        cleaned_raw = _clean_json_response(raw)
+        parsed = json.loads(cleaned_raw)
         
         # Ensure fallback defaults are met
         required = {"insight_text", "key_metric", "follow_up_suggestions", "error"}
@@ -343,7 +353,7 @@ def run_omega(
     self-corrects errors, and serializes results for Streamlit.
     """
     from .interpreter import execute_code
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
     # Step 1: Initialize empty/skipped state for all output files to prevent frontend hang
     logger.info("Initializing default output JSON states...")
@@ -529,12 +539,15 @@ Please generate the Python code to perform this analysis and write the required 
     for attempt in range(1, max_attempts + 1):
         logger.info(f"Attempting to generate python code (Attempt {attempt}/{max_attempts})...")
         try:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=history,
+            claude_messages = [msg for msg in history if msg["role"] != "system"]
+            response = client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                system=system_prompt,
+                messages=claude_messages,
                 temperature=0.1,
+                max_tokens=4096,
             )
-            reply = response.choices[0].message.content
+            reply = response.content[0].text
             history.append({"role": "assistant", "content": reply})
 
             # Extract code block

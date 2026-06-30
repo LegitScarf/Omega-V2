@@ -62,9 +62,9 @@ def test_query(query_text, df):
     def mock_task_callback(task_output):
         print(f"Task Complete Callback: {task_output.name}")
 
-    # Set OpenAI API key if not in env for debugging (fallback to standard system setup)
-    if "OPENAI_API_KEY" not in os.environ:
-        print("Warning: OPENAI_API_KEY environment variable not set.")
+    # Set Anthropic API key if not in env for debugging (fallback to standard system setup)
+    if "ANTHROPIC_API_KEY" not in os.environ:
+        print("Warning: ANTHROPIC_API_KEY environment variable not set.")
         return False
 
     result = run_omega(

@@ -12,3 +12,4 @@ python-dotenv>=1.0.0
 fpdf2>=2.7.0
 # Lock kaleido version to 0.2.1 to avoid build dependency issues on Windows
 kaleido==0.2.1
+anthropic>=0.18.0
