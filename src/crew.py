@@ -261,7 +261,7 @@ def _generate_insight_via_llm(
 
     try:
         completion_kwargs = {
-            "model": "gpt-4o-mini",
+            "model": "gpt-4o",
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -530,7 +530,7 @@ Please generate the Python code to perform this analysis and write the required 
         logger.info(f"Attempting to generate python code (Attempt {attempt}/{max_attempts})...")
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=history,
                 temperature=0.1,
             )
