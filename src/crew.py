@@ -81,7 +81,8 @@ def _parse_intent(user_query: str, schema: str) -> Dict[str, Any]:
 
     try:
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            # model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             system=_INTENT_SYSTEM_PROMPT.strip(),
             messages=[
                 {"role": "user", "content": user_message},
