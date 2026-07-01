@@ -1259,8 +1259,20 @@ def _render_results(result: Dict[str, Any]) -> None:
 
     if chart_gen and chart_spec and not has_forecast and not has_regression and not has_classification and not has_clustering:
         try:
-            fig = go.Figure(chart_spec)
-            st.plotly_chart(fig, width='stretch')
+            figs_to_render = []
+            if isinstance(chart_spec, dict):
+                if "data" in chart_spec:
+                    figs_to_render.append(chart_spec)
+                else:
+                    for k, v in chart_spec.items():
+                        if isinstance(v, dict) and "data" in v:
+                            figs_to_render.append(v)
+            if not figs_to_render:
+                figs_to_render.append(chart_spec)
+
+            for spec in figs_to_render:
+                fig = go.Figure(spec)
+                st.plotly_chart(fig, width='stretch')
         except Exception as exc:
             st.warning(f"Chart could not be rendered: {exc}")
     elif not chart_gen:

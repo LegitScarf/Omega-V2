@@ -114,31 +114,44 @@ def generate_pdf_report(result: Dict[str, Any]) -> BytesIO:
         pdf.cell(width, 5, "VISUALIZATION", ln=1)
         pdf.ln(3)
         
-        try:
-            # Recreate figure using Plotly dict spec
-            fig = go.Figure(chart_spec)
-            
-            # Apply styling parameters compatible with PDF format (light background)
-            fig.update_layout(
-                plot_bgcolor='#FFFFFF',
-                paper_bgcolor='#FFFFFF',
-                font=dict(color='#333333'),
-                margin=dict(l=40, r=40, t=50, b=40)
-            )
-            
-            # Convert to PNG image in memory
-            # Kaleido engine runs inside plotly's to_image
-            img_bytes = fig.to_image(format="png", width=700, height=380, scale=2)
-            
-            # Add to document
-            pdf.image(BytesIO(img_bytes), x=15, w=width)
-            pdf.ln(6)
-        except Exception as e:
-            logger.warning(f"Failed to compile and embed chart in PDF: {e}")
-            pdf.set_font("Helvetica", "I", 9)
-            pdf.set_text_color(150, 150, 150)
-            pdf.cell(width, 5, "[Chart visualization could not be rendered in PDF format]", ln=1)
-            pdf.ln(4)
+        # Determine if we have one figure or multiple nested figures
+        figs_to_render = []
+        if isinstance(chart_spec, dict):
+            if "data" in chart_spec:
+                figs_to_render.append(chart_spec)
+            else:
+                for k, v in chart_spec.items():
+                    if isinstance(v, dict) and "data" in v:
+                        figs_to_render.append(v)
+        if not figs_to_render and chart_spec:
+            figs_to_render.append(chart_spec)
+
+        for spec in figs_to_render:
+            try:
+                # Recreate figure using Plotly dict spec
+                fig = go.Figure(spec)
+                
+                # Apply styling parameters compatible with PDF format (light background)
+                fig.update_layout(
+                    plot_bgcolor='#FFFFFF',
+                    paper_bgcolor='#FFFFFF',
+                    font=dict(color='#333333'),
+                    margin=dict(l=40, r=40, t=50, b=40)
+                )
+                
+                # Convert to PNG image in memory
+                # Kaleido engine runs inside plotly's to_image
+                img_bytes = fig.to_image(format="png", width=700, height=380, scale=2)
+                
+                # Add to document
+                pdf.image(BytesIO(img_bytes), x=15, w=width)
+                pdf.ln(6)
+            except Exception as e:
+                logger.warning(f"Failed to compile and embed chart in PDF: {e}")
+                pdf.set_font("Helvetica", "I", 9)
+                pdf.set_text_color(150, 150, 150)
+                pdf.cell(width, 5, "[Chart visualization could not be rendered in PDF format]", ln=1)
+                pdf.ln(4)
 
     # 4. Data Table
     rows = result.get("rows", [])

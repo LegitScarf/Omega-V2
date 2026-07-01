@@ -972,14 +972,26 @@ def _render_results(result: Dict[str, Any]) -> None:
                             except Exception:
                                 pass
                         sanitized_spec = deep_sanitize(copy.deepcopy(spec_to_sanitize))
-                        fig = go.Figure(sanitized_spec)
-                        fig.update_layout(
-                            plot_bgcolor='#FFFFFF',
-                            paper_bgcolor='#FAFAFA',
-                            font=dict(family='Inter, sans-serif', size=12, color='#555'),
-                            margin=dict(l=40, r=40, t=48, b=40),
-                        )
-                        st.plotly_chart(fig, use_container_width=True, key=f"comp_chart_{idx}")
+                        figs_to_render = []
+                        if isinstance(sanitized_spec, dict):
+                            if "data" in sanitized_spec:
+                                figs_to_render.append(sanitized_spec)
+                            else:
+                                for k, v in sanitized_spec.items():
+                                    if isinstance(v, dict) and "data" in v:
+                                        figs_to_render.append(v)
+                        if not figs_to_render:
+                            figs_to_render.append(sanitized_spec)
+
+                        for f_idx, spec in enumerate(figs_to_render):
+                            fig = go.Figure(spec)
+                            fig.update_layout(
+                                plot_bgcolor='#FFFFFF',
+                                paper_bgcolor='#FAFAFA',
+                                font=dict(family='Inter, sans-serif', size=12, color='#555'),
+                                margin=dict(l=40, r=40, t=48, b=40),
+                            )
+                            st.plotly_chart(fig, use_container_width=True, key=f"comp_chart_{idx}_{f_idx}")
                     except Exception as e:
                         st.warning(f"Component chart could not be rendered: {e}")
             st.write("") # small spacer
@@ -1718,14 +1730,26 @@ def _render_results(result: Dict[str, Any]) -> None:
                 except Exception:
                     pass
             sanitized_spec = deep_sanitize(copy.deepcopy(spec_to_sanitize))
-            fig = go.Figure(sanitized_spec)
-            fig.update_layout(
-                plot_bgcolor='#FFFFFF',
-                paper_bgcolor='#FAFAFA',
-                font=dict(family='Inter, sans-serif', size=12, color='#555'),
-                margin=dict(l=40, r=40, t=48, b=40),
-            )
-            st.plotly_chart(fig, use_container_width=True, key="main_layout_chart")
+            figs_to_render = []
+            if isinstance(sanitized_spec, dict):
+                if "data" in sanitized_spec:
+                    figs_to_render.append(sanitized_spec)
+                else:
+                    for k, v in sanitized_spec.items():
+                        if isinstance(v, dict) and "data" in v:
+                            figs_to_render.append(v)
+            if not figs_to_render:
+                figs_to_render.append(sanitized_spec)
+
+            for f_idx, spec in enumerate(figs_to_render):
+                fig = go.Figure(spec)
+                fig.update_layout(
+                    plot_bgcolor='#FFFFFF',
+                    paper_bgcolor='#FAFAFA',
+                    font=dict(family='Inter, sans-serif', size=12, color='#555'),
+                    margin=dict(l=40, r=40, t=48, b=40),
+                )
+                st.plotly_chart(fig, use_container_width=True, key=f"main_layout_chart_{f_idx}")
         except Exception as exc:
             st.warning(f"Chart could not be rendered: {exc}")
     elif not chart_gen:

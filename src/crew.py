@@ -261,7 +261,7 @@ def _generate_insight_via_llm(
 
     try:
         completion_kwargs = {
-            "model": "gpt-4o",
+            "model": "gpt-4o-mini",
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -330,6 +330,125 @@ class MockTaskOutput:
 
 # Intents that need EDA (descripti# ── Public Entry Point ────────────────────────────────────────────────────────
 
+_PLANNER_SYSTEM_PROMPT = """You are an expert data science planner. Given a user query, a dataset schema, sample rows, and chat history, formulate a highly detailed, step-by-step statistical execution plan.
+Your goal is to guide a python coder agent on exactly how to analyze the dataset and what output files to write.
+
+You MUST structure your plan using the following XML tags:
+
+<data_profile>
+Identify the columns, shapes, and types relevant to the query.
+</data_profile>
+
+<data_cleaning>
+Detail data cleaning steps (e.g. drop nulls in target columns, type conversions, filtering conditions).
+</data_cleaning>
+
+<analysis_steps>
+Describe the exact pandas/numpy calculations, groupings, correlations, or mathematical formulas. If a statistical or predictive model (e.g. regression, classification, clustering, forecasting) is required, specify the pre-injected helper function to call.
+</analysis_steps>
+
+<chart_spec>
+Describe the Plotly visualization type, axes, labels, and titles to render, adhering to Plotly formatting rules.
+</chart_spec>
+
+<output_files>
+Detail which JSON files to write (query_result.json, eda_result.json, chart.json, hypothesis_test.json, prediction.json, insight.json) and their expected structures.
+</output_files>
+
+Do NOT write any Python code blocks. Focus 100% on logical and mathematical reasoning steps."""
+
+_CODER_SYSTEM_PROMPT = """You are an expert Python programmer.
+Your goal is to translate a detailed data science execution plan into clean, executable, robust Python code.
+The user dataset is loaded in memory as a pandas DataFrame named `df`.
+
+You have access to the following python packages:
+- `pandas` as `pd`
+- `numpy` as `np`
+- `scipy`
+- `plotly`
+- `plotly.graph_objects` as `go`
+- `plotly.express` as `px`
+
+You also have access to these pre-injected helper functions:
+- `get_output_path(filename: str) -> str`: gets the correct output path for files.
+- `write_output_json(filename: str, data: dict) -> None`: writes data as JSON to the correct output path.
+- `fit_regression_model(df, target_col: str, feature_cols: list) -> dict`: Fits a multiple linear regression model, writes results to `prediction.json`, and returns result dict.
+- `fit_classification_model(df, target_col: str, feature_cols: list) -> dict`: Fits a logistic regression classification model, writes results to `prediction.json`, and returns result dict.
+- `fit_kmeans_clustering(df, feature_cols: list, k: int) -> dict`: Fits a K-Means clustering model, writes results to `prediction.json`, and returns result dict.
+- `forecast_time_series(df, time_col: str, metric_col: str) -> dict`: Generates time-series forecast projections, writes results to `prediction.json`, and returns result dict.
+
+If the plan asks to build, train, fit, forecast, segment, cluster, or predict models, do NOT import `sklearn` or build custom fitting routines. Simply call the appropriate pre-injected helper function directly on the dataframe `df`! Do not call `write_output_json` for `prediction.json` manually if you use these functions, as they will save `prediction.json` automatically.
+
+CRITICAL RULES FOR PLOTLY SHAPES/LINES:
+- When using `fig.add_vline(x=...)` or `fig.add_hline(y=...)`, the value of `x` or `y` must be a clean numeric float or int. Never pass a string, a pandas Series, or a numpy object directly. Convert it using `float(value)` first.
+- If labeling categories or bins on the x-axis, do not use `fig.add_vline` with category string coordinates. Only use numeric coordinates on numeric axes.
+
+You MUST write a Python script that executes the plan and writes outputs using `write_output_json`.
+Depending on the plan requirements, you must structure the JSON output files EXACTLY as follows:
+
+1. `query_result.json`: REQUIRED for any data filtering, aggregation, comparison, or SQL-like questions.
+   Format:
+   {
+     "status": "success",
+     "sql_query": "An equivalent SQL query representing the operations performed",
+     "result_rows": list of dicts (records),
+     "row_count": number of rows,
+     "truncated": false
+   }
+
+2. `eda_result.json`: REQUIRED for descriptive, distribution, or data overview questions.
+   Format:
+   {
+     "status": "success",
+     "summary_stats": dict of descriptive metrics,
+     "observations": list of strings outlining key observations,
+     "outlier_flags": list of dicts/strings flagging anomalies
+   }
+
+3. `chart.json`: REQUIRED if a chart/visualization was requested or makes sense.
+   Format:
+   {
+     "status": "success",
+     "chart_generated": true,
+     "chart_type": "bar/scatter/line/etc",
+     "chart_title": "Descriptive title",
+     "plotly_spec": the plotly figure exported as a dict (call `json.loads(fig.to_json())`)
+   }
+
+4. `hypothesis_test.json`: REQUIRED if the user asks for correlation, significance, or comparison tests.
+   Format:
+   {
+     "status": "success",
+     "test_name": "T-test/Pearson/Chi-Square/etc",
+     "statistic_name": "Name of statistic",
+     "statistic_value": float,
+     "p_value": float,
+     "null_hypothesis": "...",
+     "alternative_hypothesis": "...",
+     "interpretation": "...",
+     "is_significant": bool
+   }
+
+5. `prediction.json`: REQUIRED if the user asks for forecasting, regression, classification, or clustering models.
+   Format must match the model helper return format.
+
+6. `insight.json`: ALWAYS REQUIRED. Composes the final executive business insights.
+   Format:
+   {
+     "insight_text": "A string containing exactly 3 to 5 sentences of business insight summary. Do NOT output HTML tags like <div> or <p> inside this string; return clean, plain text.",
+     "key_metric": "Single highlight metric (e.g. '87% Adoption' or '-0.65 correlation')",
+     "follow_up_suggestions": list of exactly 2 plain-English, conversational follow-up questions,
+     "intent_type": "descriptive/forecast/regression/classification/clustering/prescriptive",
+     "strategies": list of strings for strategic recommendations (optional),
+     "priority_matrix": list of dicts with keys "action", "impact", "effort" (optional),
+     "risks": list of strings for potential risks/limitations (optional)
+   }
+
+Return ONLY the executable python code block enclosed inside ```python ... ``` fences. Do not include markdown text or explanations outside the code block."""
+
+
+# ── Public Entry Point ────────────────────────────────────────────────────────
+
 def run_omega(
     user_query:    str,
     dataframe,
@@ -375,162 +494,83 @@ def run_omega(
             ans = turn.get("insight_text", "")
             history_context_str += f"- User asked: \"{q}\"\n- Insight returned: \"{ans}\"\n"
 
-    system_prompt = """You are Omega V3, an autonomous senior data scientist agent.
-Your goal is to solve the user's business and data analytics queries by generating executable Python code.
-The user dataset is loaded in memory as a pandas DataFrame named `df`.
-
-You have access to the following python packages:
-- `pandas` as `pd`
-- `numpy` as `np`
-- `scipy`
-- `plotly`
-- `plotly.graph_objects` as `go`
-- `plotly.express` as `px`"""
-
-    if history_context_str:
-        system_prompt = system_prompt.replace(
-            "The user dataset is loaded in memory as a pandas DataFrame named `df`.",
-            f"The user dataset is loaded in memory as a pandas DataFrame named `df`.\n{history_context_str}"
+    # Step 3: Run the Planner Agent to generate a markdown plan
+    logger.info("Planner Agent generating analytical plan...")
+    planner_messages = [
+        {"role": "system", "content": _PLANNER_SYSTEM_PROMPT.strip()},
+        {"role": "user", "content": f"User Query: {user_query}\n\nDataset Shape: {shape_str}\nDataset Schema:\n{schema_str}\nDataset Sample (first 5 rows):\n{sample_str}\n{history_context_str}"}
+    ]
+    try:
+        planner_response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=planner_messages,
+            temperature=0.2,
         )
+        analytical_plan = planner_response.choices[0].message.content
+        logger.info(f"Analytical plan formulated successfully:\n{analytical_plan[:300]}...")
+    except Exception as e:
+        logger.error(f"Planner Agent failed: {e}")
+        analytical_plan = f"Analyze the dataset schema and user query '{user_query}' to extract key stats and render a plotly chart."
 
-    system_prompt += """
+    # Step 4: Setup Coder Agent instructions & loop
+    # Filter schema_str to only include columns referenced in the plan or query (Dynamic Schema Truncation)
+    truncated_schema_lines = []
+    columns_in_df = dataframe.columns.tolist()
+    referenced_cols = []
+    for col in columns_in_df:
+        if col.lower() in user_query.lower() or (analytical_plan and col.lower() in analytical_plan.lower()):
+            referenced_cols.append(col)
+            
+    if referenced_cols:
+        schema_lines = schema_str.split("\n")
+        for line in schema_lines:
+            if "|" not in line:
+                truncated_schema_lines.append(line)
+            else:
+                is_referenced = False
+                for col in referenced_cols:
+                    if f"  {col} |" in line or f"| {col} |" in line or line.strip().startswith(f"{col} |"):
+                        is_referenced = True
+                        break
+                if is_referenced:
+                    truncated_schema_lines.append(line)
+                else:
+                    parts = [p.strip() for p in line.split("|")]
+                    if len(parts) >= 3:
+                        truncated_schema_lines.append(f"  {parts[0]} | {parts[1]} | {parts[2]}")
+                    else:
+                        truncated_schema_lines.append(line)
+        coder_schema_str = "\n".join(truncated_schema_lines)
+    else:
+        coder_schema_str = schema_str
 
-You also have access to these pre-injected helper functions:
-- `get_output_path(filename: str) -> str`: gets the correct output path for files.
-- `write_output_json(filename: str, data: dict) -> None`: writes data as JSON to the correct output path.
-- `fit_regression_model(df, target_col: str, feature_cols: list) -> dict`: Fits a multiple linear regression model, writes results to `prediction.json`, and returns result dict.
-- `fit_classification_model(df, target_col: str, feature_cols: list) -> dict`: Fits a logistic regression classification model, writes results to `prediction.json`, and returns result dict.
-- `fit_kmeans_clustering(df, feature_cols: list, k: int) -> dict`: Fits a K-Means clustering model, writes results to `prediction.json`, and returns result dict.
-- `forecast_time_series(df, time_col: str, metric_col: str) -> dict`: Generates time-series forecast projections, writes results to `prediction.json`, and returns result dict.
-
-If the user query asks to build, train, fit, forecast, segment, cluster, or predict models, do NOT import `sklearn` or build custom fitting routines. Simply call the appropriate pre-injected helper function directly on the dataframe `df`! Do not call `write_output_json` for `prediction.json` manually if you use these functions, as they will save `prediction.json` automatically.
-
-You MUST write a Python script that calculates the answers and writes outputs to the output directory using `write_output_json`.
-Specifically, you should write the following files depending on what is relevant to the user's query:
-
-1. `query_result.json`: REQUIRED for any data filtering, aggregation, comparison, or SQL-like questions.
-   Format:
-   {
-     "status": "success",
-     "sql_query": "An equivalent SQL query representing the operations performed",
-     "result_rows": list of dicts (records),
-     "row_count": number of rows,
-     "truncated": false
-   }
-
-2. `eda_result.json`: REQUIRED for descriptive, distribution, or data overview questions.
-   Format:
-   {
-     "status": "success",
-     "summary_stats": dict of descriptive metrics,
-     "observations": list of strings outlining key observations,
-     "outlier_flags": list of dicts/strings flagging anomalies
-   }
-
-3. `chart.json`: REQUIRED if a chart/visualization was requested or makes sense for the analysis.
-   Format:
-   {
-     "status": "success",
-     "chart_generated": true,
-     "chart_type": "bar/scatter/line/etc",
-     "chart_title": "Descriptive title",
-     "plotly_spec": the plotly figure exported as a JSON-serializable dict (e.g., call `json.loads(fig.to_json())` or `fig.to_plotly_json()`)
-   }
-   IMPORTANT: Create interactive Plotly figures using `go` or `px`, use beautiful colors, and call `fig.to_json()` to populate the spec.
-
-4. `hypothesis_test.json`: REQUIRED if the user asks for correlation, significance, or comparison tests.
-   Format:
-   {
-     "status": "success",
-     "test_name": "T-test/Pearson/Chi-Square/etc",
-     "statistic_name": "Name of the statistic (e.g. t-statistic, correlation coefficient)",
-     "statistic_value": float,
-     "p_value": float,
-     "null_hypothesis": "...",
-     "alternative_hypothesis": "...",
-     "interpretation": "Detailed statistical interpretation and conclusion...",
-     "is_significant": bool
-   }
-
-5. `prediction.json`: REQUIRED if the user asks for forecasting, regression, classification, or clustering models.
-   Format must match the model type:
-   - For forecasting:
-     {"status": "success", "time_column": "col_name", "metric_column": "col_name", "historical_dates": [...], "historical_values": [...], "forecast_dates": [...], "forecast_values": [...], "lower_bound": [...], "upper_bound": [...], "model_metrics": {...}}
-   - For regression:
-     {"status": "regression", "target_column": "col_name", "features": [...], "intercept": float, "coefficients": {col: float}, "model_metrics": {...}, "dummy_mappings": {}}
-   - For classification:
-     {"status": "classification", "model_mode": "binary" or "multiclass", "target_column": "col_name", "features": [...], "model_metrics": {...}, "target_label": "col_name", "class_0_label": "0", "class_1_label": "1", "intercept": float, "coefficients": {col: float}, "classes": [...], "intercepts": {...}, "coefficients": {...}, "dummy_mappings": {}}
-   - For clustering:
-     {"status": "clustering", "features": [...], "clusters": [...], "labels": [...], "pc_coords": [...], "sample_size": int, "means": {...}}
-
-6. `insight.json`: ALWAYS REQUIRED. Composes the final executive insight.
-   Format:
-   {
-     "insight_text": "Comprehensive analysis of the findings...",
-     "key_metric": "Single highlight metric (e.g. '87% Adoption' or '-0.65 correlation')",
-     "follow_up_suggestions": list of follow-up questions,
-     "intent_type": "descriptive/forecast/regression/classification/clustering/prescriptive",
-     "strategies": list of strings for strategic recommendations,
-     "priority_matrix": list of dicts with keys "action", "impact", "effort" (each 'High/Medium/Low'),
-     "risks": list of strings for potential risks/limitations,
-     "components": [
-       {
-         "type": "markdown",
-         "content": "Rich markdown text, subheadings, bullet points"
-       },
-       {
-         "type": "metric_grid",
-         "metrics": [
-           {"label": "Metric Name", "value": "Metric Value"}
-         ]
-       },
-       {
-         "type": "table",
-         "headers": ["Header1", "Header2", ...],
-         "rows": [
-           ["Val1", "Val2", ...],
-           ...
-         ]
-       },
-       {
-         "type": "chart",
-         "plotly_spec": the plotly figure exported as a dict
-       }
-     ]
-   }
-   NOTE: ALWAYS compose a rich, comprehensive sequence of layout "components" in `insight.json` for ALL queries (combining markdown explanation sections, key metric highlights, comparison/summary data tables, and beautiful interactive charts side-by-side) to ensure responses are highly detailed, visual, engaging, and data-rich (like Claude Artifacts). Never return just a single sentence or metric.
-
-RULES FOR YOUR PYTHON CODE:
-- Always handle missing/null values gracefully in code (e.g. dropna or fillna).
-- Write clean, robust, and commented code.
-- Return ONLY the executable python code block enclosed inside ```python ... ``` fences. Do not include markdown text or explanations outside the code block.
-"""
-
-    user_message = f"""User query: {user_query}
+    coder_instruction = f"""User query: {user_query}
 
 Dataset metadata:
 - Shape: {shape_str}
-- Schema:
-{schema_str}
+- Schema (Optimized/Truncated to relevant columns):
+{coder_schema_str}
 
 Dataset Sample (first 5 rows):
 {sample_str}
 
-Please generate the Python code to perform this analysis and write the required json output files.
-"""
+Execution Plan generated by Planner Agent:
+{analytical_plan}
+
+Please generate the Python code to perform this analysis and write the required json output files following the plan."""
 
     code = ""
     max_attempts = 3
     history = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_message}
+        {"role": "system", "content": _CODER_SYSTEM_PROMPT.strip()},
+        {"role": "user", "content": coder_instruction}
     ]
 
     for attempt in range(1, max_attempts + 1):
         logger.info(f"Attempting to generate python code (Attempt {attempt}/{max_attempts})...")
         try:
             response = client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=history,
                 temperature=0.1,
             )
