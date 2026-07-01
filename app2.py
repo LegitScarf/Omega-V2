@@ -792,6 +792,10 @@ def _render_sidebar() -> None:
                     st.session_state.current_result = None
                     register_dataset(session_id=uploaded.name, df=df)
 
+                    with st.spinner("Analyzing dataset semantic model and hierarchies..."):
+                        from src.crew import bootstrap_omega
+                        bootstrap_omega(df)
+
             except Exception as exc:
                 st.error(f"Could not read file: {exc}")
 
@@ -1809,6 +1813,77 @@ def _render_results(result: Dict[str, Any]) -> None:
 
 # ── Main area ──────────────────────────────────────────────────────────────────
 
+def _render_executive_dashboard(bm_data: Dict[str, Any]) -> None:
+    """Renders the semantic business model dashboard immediately on data upload."""
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, var(--accent-light) 0%, var(--bg-surface) 100%); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 24px; box-shadow: var(--shadow-md); margin-bottom: 24px; border-left: 6px solid var(--accent);">
+        <div style="font-size: 12px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Business Domain: {bm_data.get('business_domain', 'Operations')}</div>
+        <h2 style="margin: 0 0 12px 0; font-size: 24px; font-weight: 800; color: var(--text-primary); border: none;">Executive Business Model Profile</h2>
+        <p style="font-size: 15px; color: var(--text-secondary); line-height: 1.6; margin: 0;">{bm_data.get('executive_summary', '')}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    kpis = bm_data.get("kpis", [])
+    if kpis:
+        st.markdown("<h3 style='font-size: 18px; font-weight: 700; color: var(--text-primary); margin-bottom: 16px;'>Inferred Key Performance Indicators (KPIs)</h3>", unsafe_allow_html=True)
+        # Create KPI metric cards
+        cols = st.columns(min(len(kpis), 4))
+        for idx, kpi in enumerate(kpis):
+            col_idx = idx % min(len(kpis), 4)
+            with cols[col_idx]:
+                name = kpi.get("name", "")
+                val = kpi.get("formatted_value", "N/A")
+                desc = kpi.get("description", "")
+                column = kpi.get("column", "")
+                st.markdown(f"""
+                <div style="background-color: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 18px; box-shadow: var(--shadow-sm); margin-bottom: 16px; border-top: 3px solid var(--purple); height: 160px; display: flex; flex-direction: column; justify-content: space-between;">
+                    <div>
+                        <div style="font-size: 11px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">{name} ({column})</div>
+                        <div style="font-size: 24px; font-weight: 800; color: var(--text-primary); font-family: var(--font-mono); margin-bottom: 8px;">{val}</div>
+                    </div>
+                    <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.3;">{desc}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+    st.markdown("<div style='margin-top: 24px;'></div>", unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        hierarchies = bm_data.get("hierarchies", [])
+        if hierarchies:
+            st.markdown("<h3 style='font-size: 18px; font-weight: 700; color: var(--text-primary); margin-bottom: 16px;'>Detected Hierarchies & Business Model</h3>", unsafe_allow_html=True)
+            for idx, h in enumerate(hierarchies):
+                name = h.get("name", "Hierarchy")
+                levels = h.get("levels", [])
+                levels_str = " → ".join(f"<span style='font-weight: 600; color: var(--accent);'>{lvl}</span>" for lvl in levels)
+                st.markdown(f"""
+                <div style="background-color: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; box-shadow: var(--shadow-sm); margin-bottom: 16px;">
+                    <div style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">{name}</div>
+                    <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">{levels_str}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+    with col2:
+        analyses = bm_data.get("suggested_analyses", [])
+        if analyses:
+            st.markdown("<h3 style='font-size: 18px; font-weight: 700; color: var(--text-primary); margin-bottom: 16px;'>Recommended Analyses</h3>", unsafe_allow_html=True)
+            for idx, a in enumerate(analyses):
+                title = a.get("title", "Analysis")
+                desc = a.get("description", "")
+                atype = a.get("type", "diagnostic").upper()
+                badge_class = "badge-success" if atype == "DESCRIPTIVE" else ("badge-running" if atype == "DIAGNOSTIC" else "badge-error")
+                st.markdown(f"""
+                <div style="background-color: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; box-shadow: var(--shadow-sm); margin-bottom: 16px; border-left: 4px solid var(--purple);">
+                    <span class="badge {badge_class}" style="margin-bottom: 8px;">{atype}</span>
+                    <div style="font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">{title}</div>
+                    <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.4;">{desc}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+
+# ── Main area ──────────────────────────────────────────────────────────────────
+
 def _render_main() -> None:
 
     # Header
@@ -1904,18 +1979,32 @@ def _render_main() -> None:
         _render_results(result)
 
     else:
-        # Prompt state
-        st.markdown("""
-        <div class="empty-wrap" style="padding:48px 24px">
-            <div class="empty-icon-ring">💬</div>
-            <div class="empty-title">Ask your first question</div>
-            <div class="empty-sub">
-                Try: "Show me total sales by region"<br>
-                or "What is the average order value?"<br>
-                or "Find the top 10 customers"
+        # Load business model if available
+        bm_data = None
+        try:
+            from src.utils import get_output_path
+            bm_path = Path(get_output_path("business_model.json"))
+            if bm_path.exists():
+                with open(bm_path, "r", encoding="utf-8") as f:
+                    bm_data = json.load(f)
+        except Exception as e:
+            logger.warning(f"Could not load business model: {e}")
+
+        if bm_data and st.session_state.df is not None:
+            _render_executive_dashboard(bm_data)
+        else:
+            # Prompt state
+            st.markdown("""
+            <div class="empty-wrap" style="padding:48px 24px">
+                <div class="empty-icon-ring">💬</div>
+                <div class="empty-title">Ask your first question</div>
+                <div class="empty-sub">
+                    Try: "Show me total sales by region"<br>
+                    or "What is the average order value?"<br>
+                    or "Find the top 10 customers"
+                </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

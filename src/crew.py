@@ -105,14 +105,17 @@ def _parse_intent(user_query: str, schema: str) -> Dict[str, Any]:
 
 # ── Structured Insight Generation ──────────────────────────────────────────────
 _DESCRIPTIVE_INSIGHT_PROMPT = """
-You are a senior data analyst. Your job is to translate descriptive statistics and data profiling results into a clear, jargon-free data health and completeness overview for a non-technical user.
+You are a senior data analyst and consultant. Your job is to translate descriptive statistics and data profiling results into a clear, jargon-free data health and completeness overview for a non-technical user.
 
-You must return ONLY a valid JSON object with exactly these five keys:
-- "insight_text": A string containing exactly 3 to 5 sentences summarizing the dataset.
-- "key_metric": A short, clean string representing the overall scale of the data (e.g. "16,598 Game Records").
+You must return ONLY a valid JSON object with exactly these eight keys:
+- "insight_text": A string summarizing the data health and key insights.
+- "key_metric": A short, clean string representing the overall scale of the data.
 - "follow_up_suggestions": A list of exactly 2 plain-English follow-up questions.
+- "strategies": A list of 3 to 5 specific, highly detailed strategic actions based on the data.
+- "priority_matrix": A list of 3 to 5 objects: [{"action": "Action description", "impact": "High"/"Medium"/"Low", "effort": "High"/"Medium"/"Low"}].
+- "risks": A list of 2 to 4 potential risks or data quality concerns.
 - "error": null (or error message).
-- "components": A list of layout components to render (e.g. metric_grid with total rows/columns, table of observations/attributes). Follow this structure:
+- "components": A list of layout components to render. Follow this structure:
   [
     {"type": "markdown", "content": "detailed markdown content"},
     {"type": "metric_grid", "metrics": [{"label": "Metric Name", "value": "Metric Value"}]},
@@ -122,14 +125,17 @@ You must return ONLY a valid JSON object with exactly these five keys:
 """
 
 _ANALYTICAL_INSIGHT_PROMPT = """
-You are a senior business analyst. Your job is to translate statistical data, queries, and analytical findings into a clear, jargon-free business insight for a non-technical user.
+You are a senior business analyst and consultant. Your job is to translate statistical data, queries, and analytical findings into a clear, jargon-free business insight for a non-technical user.
 
-You must return ONLY a valid JSON object with exactly these five keys:
-- "insight_text": A string containing exactly 3 to 5 sentences of business insight (most important takeaway, values/proportions context, and recommendation).
-- "key_metric": A short string representing the single most important number or finding (e.g., "Top Genre: Action (3.2M)").
+You must return ONLY a valid JSON object with exactly these eight keys:
+- "insight_text": A string summarizing the business insight (most important takeaway, context, and recommendation).
+- "key_metric": A short string representing the single most important number or finding.
 - "follow_up_suggestions": A list of exactly 2 plain-English, conversational follow-up questions.
+- "strategies": A list of 3 to 5 specific, highly detailed strategic actions based on the analysis.
+- "priority_matrix": A list of 3 to 5 objects: [{"action": "Action description", "impact": "High"/"Medium"/"Low", "effort": "High"/"Medium"/"Low"}].
+- "risks": A list of 2 to 4 potential risks or operational concerns.
 - "error": null (or error message).
-- "components": A list of layout components to render (always include a metric_grid showing the key statistics, and a table/markdown breakdown of the values). Follow this structure:
+- "components": A list of layout components to render. Follow this structure:
   [
     {"type": "markdown", "content": "detailed markdown content"},
     {"type": "metric_grid", "metrics": [{"label": "Metric Name", "value": "Metric Value"}]},
@@ -139,15 +145,18 @@ You must return ONLY a valid JSON object with exactly these five keys:
 """
 
 _CONVERSATIONAL_INSIGHT_PROMPT = """
-You are the user's personal data analyst, named Omega.
-Your goal is to conversationally, clearly, and directly answer the user's advisory, Q&A, or follow-up question.
+You are the user's senior business consultant, named Omega.
+Your goal is to answer the user's question, provide strategic recommendations, and outline decisions.
 
-You must return ONLY a valid JSON object with exactly these five keys:
-- "insight_text": A highly detailed, thorough string containing a comprehensive response (typically 2 to 3 detailed paragraphs).
+You must return ONLY a valid JSON object with exactly these eight keys:
+- "insight_text": A detailed, thorough string containing a comprehensive response (typically 2 to 3 detailed paragraphs).
 - "key_metric": A short, clean string representing the advice topic.
 - "follow_up_suggestions": A list of exactly 2 conversational follow-up questions.
+- "strategies": A list of 3 to 5 specific, highly detailed strategic actions.
+- "priority_matrix": A list of 3 to 5 objects: [{"action": "Action description", "impact": "High"/"Medium"/"Low", "effort": "High"/"Medium"/"Low"}].
+- "risks": A list of 2 to 4 potential risks.
 - "error": null (or error message).
-- "components": A list of layout components to render (incorporate a markdown card, metrics, and a table if data is discussed). Follow this structure:
+- "components": A list of layout components to render. Follow this structure:
   [
     {"type": "markdown", "content": "detailed markdown content"},
     {"type": "metric_grid", "metrics": [{"label": "Metric Name", "value": "Metric Value"}]},
@@ -160,14 +169,14 @@ You are the user's senior business consultant and prescriptive analytics advisor
 Your goal is to propose a concrete, actionable, and data-grounded strategy plan to address the user's query.
 
 You must return ONLY a valid JSON object with exactly these eight keys:
-- "insight_text": A detailed, thorough string containing a comprehensive strategic analysis (typically 2 detailed paragraphs).
-- "key_metric": A short topic label (e.g., "Market Entry Plan").
+- "insight_text": A detailed, thorough string containing a comprehensive strategic analysis.
+- "key_metric": A short topic label.
 - "strategies": A list of 3 to 5 specific, highly detailed strategies.
 - "priority_matrix": A list of 3 to 5 objects: [{"action": "Action description", "impact": "High"/"Medium"/"Low", "effort": "High"/"Medium"/"Low"}].
 - "risks": A list of 2 to 4 potential risks or data quality concerns.
 - "follow_up_suggestions": A list of exactly 2 plain-English, conversational follow-up questions.
 - "error": null (or error message).
-- "components": A list of layout components to render (always include a markdown summary, metric_grid, and action table). Follow this structure:
+- "components": A list of layout components to render. Follow this structure:
   [
     {"type": "markdown", "content": "detailed markdown content"},
     {"type": "metric_grid", "metrics": [{"label": "Metric Name", "value": "Metric Value"}]},
@@ -330,8 +339,14 @@ class MockTaskOutput:
 
 # Intents that need EDA (descripti# ── Public Entry Point ────────────────────────────────────────────────────────
 
-_PLANNER_SYSTEM_PROMPT = """You are an expert data science planner. Given a user query, a dataset schema, sample rows, and chat history, formulate a highly detailed, step-by-step statistical execution plan.
+_PLANNER_SYSTEM_PROMPT = """You are a senior data science and analytics consulting planner. Given a user query, a dataset schema, sample rows, chat history, and the Semantic Business Model, formulate a highly detailed, step-by-step statistical execution plan.
 Your goal is to guide a python coder agent on exactly how to analyze the dataset and what output files to write.
+
+Instead of answering the query with simple descriptive text or code, you must design a structured, multi-stage Decision Intelligence workflow:
+1. DESCRIPTIVE: Calculate the current trend, magnitude, and direct stats of interest.
+2. DIAGNOSTIC: Investigate root causes and driver metrics (e.g. drill-down by organizational/geographic hierarchies, cohort analysis, correlation tests).
+3. PREDICTIVE: Forecast future trajectory if the current trend continues.
+4. PRESCRIPTIVE: Identify actionable business recommendations, estimate the expected business impact/revenue recovery of those recommendations, and detail associated risks.
 
 You MUST structure your plan using the following XML tags:
 
@@ -344,7 +359,7 @@ Detail data cleaning steps (e.g. drop nulls in target columns, type conversions,
 </data_cleaning>
 
 <analysis_steps>
-Describe the exact pandas/numpy calculations, groupings, correlations, or mathematical formulas. If a statistical or predictive model (e.g. regression, classification, clustering, forecasting) is required, specify the pre-injected helper function to call.
+Describe the exact pandas/numpy calculations, groupings, correlations, or mathematical formulas to address the descriptive, diagnostic, predictive, and prescriptive steps. If a statistical or predictive model (e.g. regression, classification, clustering, forecasting) is required, specify the pre-injected helper function to call.
 </analysis_steps>
 
 <chart_spec>
@@ -352,7 +367,7 @@ Describe the Plotly visualization type, axes, labels, and titles to render, adhe
 </chart_spec>
 
 <output_files>
-Detail which JSON files to write (query_result.json, eda_result.json, chart.json, hypothesis_test.json, prediction.json, insight.json) and their expected structures.
+Detail which JSON files to write (query_result.json, eda_result.json, chart.json, hypothesis_test.json, prediction.json, insight.json) and their expected structures. Ensure that `insight.json` contains strategic recommendations, impact matrices, and risks.
 </output_files>
 
 Do NOT write any Python code blocks. Focus 100% on logical and mathematical reasoning steps."""
@@ -379,7 +394,8 @@ You also have access to these pre-injected helper functions:
 
 If the plan asks to build, train, fit, forecast, segment, cluster, or predict models, do NOT import `sklearn` or build custom fitting routines. Simply call the appropriate pre-injected helper function directly on the dataframe `df`! Do not call `write_output_json` for `prediction.json` manually if you use these functions, as they will save `prediction.json` automatically.
 
-CRITICAL RULES FOR PLOTLY SHAPES/LINES:
+CRITICAL RULES FOR PANDAS AND PLOTLY:
+- PANDAS MONTHLY FREQUENCY DEPRECATION: Never use 'M' as a frequency parameter in resample() or offsets. It raises a ValueError in current pandas versions. Always use 'ME' (Month End) instead!
 - When using `fig.add_vline(x=...)` or `fig.add_hline(y=...)`, the value of `x` or `y` must be a clean numeric float or int. Never pass a string, a pandas Series, or a numpy object directly. Convert it using `float(value)` first.
 - If labeling categories or bins on the x-axis, do not use `fig.add_vline` with category string coordinates. Only use numeric coordinates on numeric axes.
 
@@ -435,13 +451,13 @@ Depending on the plan requirements, you must structure the JSON output files EXA
 6. `insight.json`: ALWAYS REQUIRED. Composes the final executive business insights.
    Format:
    {
-     "insight_text": "A string containing exactly 3 to 5 sentences of business insight summary. Do NOT output HTML tags like <div> or <p> inside this string; return clean, plain text.",
+     "insight_text": "A string containing exactly 3 to 5 sentences of business insight summary. Explain not just WHAT happened, but WHY it happened, what will happen next, and what decision should be made. Do NOT output HTML tags like <div> or <p> inside this string; return clean, plain text.",
      "key_metric": "Single highlight metric (e.g. '87% Adoption' or '-0.65 correlation')",
      "follow_up_suggestions": list of exactly 2 plain-English, conversational follow-up questions,
      "intent_type": "descriptive/forecast/regression/classification/clustering/prescriptive",
-     "strategies": list of strings for strategic recommendations (optional),
-     "priority_matrix": list of dicts with keys "action", "impact", "effort" (optional),
-     "risks": list of strings for potential risks/limitations (optional)
+     "strategies": list of strings for strategic recommendations (Provide at least 3 concrete, data-grounded strategic actions),
+     "priority_matrix": list of dicts with keys "action", "impact" (High/Medium/Low), "effort" (High/Medium/Low) matching your recommendations,
+     "risks": list of strings for potential risks/limitations of the decisions recommended
    }
 
 Return ONLY the executable python code block enclosed inside ```python ... ``` fences. Do not include markdown text or explanations outside the code block."""
@@ -485,6 +501,18 @@ def run_omega(
     shape_str = f"{dataframe.shape[0]} rows, {dataframe.shape[1]} columns"
     sample_str = dataframe.head(5).to_string()
 
+    # Step 2.3: Load the persistent business model if it exists
+    business_model_str = ""
+    try:
+        bm_path = Path(get_output_path("business_model.json"))
+        if bm_path.exists():
+            with open(bm_path, "r", encoding="utf-8") as f:
+                business_model_str = f.read()
+    except Exception as e:
+        logger.warning(f"Could not load business model: {e}")
+
+    bm_context = f"\nSemantic Business Model:\n{business_model_str}\n" if business_model_str else ""
+
     # Step 2.5: Build chat history prompt context
     history_context_str = ""
     if chat_history:
@@ -498,7 +526,7 @@ def run_omega(
     logger.info("Planner Agent generating analytical plan...")
     planner_messages = [
         {"role": "system", "content": _PLANNER_SYSTEM_PROMPT.strip()},
-        {"role": "user", "content": f"User Query: {user_query}\n\nDataset Shape: {shape_str}\nDataset Schema:\n{schema_str}\nDataset Sample (first 5 rows):\n{sample_str}\n{history_context_str}"}
+        {"role": "user", "content": f"User Query: {user_query}\n\nDataset Shape: {shape_str}\nDataset Schema:\n{schema_str}\nDataset Sample (first 5 rows):\n{sample_str}\n{bm_context}\n{history_context_str}"}
     ]
     try:
         planner_response = client.chat.completions.create(
@@ -642,3 +670,9 @@ Please generate the Python code to perform this analysis and write the required 
     # Write the final result back to disk so Streamlit UI updates
     _write_json("insight.json", final_insight)
     return final_insight
+
+
+def bootstrap_omega(dataframe) -> dict:
+    """Exposes the business model bootstrapping functionality."""
+    from .semantic_model import bootstrap_business_model
+    return bootstrap_business_model(dataframe)
