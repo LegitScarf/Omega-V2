@@ -1301,6 +1301,8 @@ def _render_results(result: Dict[str, Any]) -> None:
                     mean_val = float(feat["mean"])
                     min_val  = float(feat["min"])
                     max_val  = float(feat["max"])
+                    if min_val >= max_val:
+                        max_val = min_val + 1.0
                     step     = 1.0 if max_val - min_val > 100 else (0.1 if max_val - min_val > 10 else 0.01)
                     slider_vals[name] = {"type": "numeric", "value": st.slider(
                         label=f"Adjust {_humanise_column(name)}",
@@ -1461,6 +1463,8 @@ def _render_results(result: Dict[str, Any]) -> None:
                     mean_val = float(feat["mean"])
                     min_val  = float(feat["min"])
                     max_val  = float(feat["max"])
+                    if min_val >= max_val:
+                        max_val = min_val + 1.0
                     step     = 1.0 if max_val - min_val > 100 else (0.1 if max_val - min_val > 10 else 0.01)
                     slider_vals[name] = {"type": "numeric", "value": st.slider(
                         label=f"Adjust {_humanise_column(name)}",
@@ -1639,6 +1643,8 @@ def _render_results(result: Dict[str, Any]) -> None:
                     mean_val = float(feat["mean"])
                     min_val  = float(feat["min"])
                     max_val  = float(feat["max"])
+                    if min_val >= max_val:
+                        max_val = min_val + 1.0
                     step     = 1.0 if max_val - min_val > 100 else (0.1 if max_val - min_val > 10 else 0.01)
                     slider_vals[name] = {"type": "numeric", "value": st.slider(
                         label=f"Adjust {_humanise_column(name)}",

@@ -530,9 +530,8 @@ def run_omega(
     ]
     try:
         planner_response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="o1-mini",
             messages=planner_messages,
-            temperature=0.2,
         )
         analytical_plan = planner_response.choices[0].message.content
         logger.info(f"Analytical plan formulated successfully:\n{analytical_plan[:300]}...")
